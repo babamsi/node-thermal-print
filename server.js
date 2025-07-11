@@ -43,6 +43,10 @@ async function forcePrint(buffer) {
   });
 }
 
+app.get('/', (req,res) => {
+  res.send("its working...")
+})
+
 // Test print endpoint (GUARANTEED to work)
 app.get('/force-test', async (req, res) => {
   try {
@@ -227,7 +231,7 @@ app.post('/force-receipt', async (req, res) => {
 });
 
 const PORT = 4000;
-app.listen(PORT, () => {
+app.listen(process.env.PORT || PORT, () => {
   console.log(`Nuclear printer server running on http://localhost:${PORT}`);
   console.log(`FORCE TEST ENDPOINT: GET http://localhost:${PORT}/force-test`);
 });
