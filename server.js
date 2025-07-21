@@ -63,7 +63,7 @@ app.post('/print-receipt', async (req, res) => {
       lineCharacter: '-',
     });
 
-    // Header
+     // Header
     printer.alignCenter();
     printer.println(restaurant || 'RESTAURANT NAME');
     printer.println('123 Main Street, City');
@@ -78,7 +78,7 @@ app.post('/print-receipt', async (req, res) => {
     printer.drawLine();
 
     // Items
-    items.forEach((item) => {
+    items.forEach((item: any) => {
       printer.println(`${item.name}${item.portion_size ? ` (${item.portion_size})` : ''}`);
       if (item.customization_notes) {
         printer.println(`  *${item.customization_notes}`);
@@ -104,7 +104,7 @@ app.post('/print-receipt', async (req, res) => {
     // Print
     const isConnected = await printer.isPrinterConnected();
     if (!isConnected) {
-      return res.status(500).json({ success: false, error: 'Printer not connected' });
+      return NextResponse.json({ success: false, error: 'Printer not connected' }, { status: 500 });
     }
     await printer.execute();
 
