@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // FORCE printer to work with Express
-const PRINTER_INTERFACE = 'COM1'; // Use EXACTLY this format for Windows
+const PRINTER_INTERFACE = 'COM01'; // Use EXACTLY this format for Windows
 const PRINTER_BAUD_RATE = 9600; // Verify this matches your printer's spec
 
 // Nuclear option: Direct serial port control
@@ -52,65 +52,79 @@ app.post('/print-receipt', async (req, res) => {
   try {
     const { order, items, totals, restaurant, table, date, time, receiptId } = req.body;
 
+    // 1. Create printer commands (same config as /force-test)
     const printer = new ThermalPrinter({
       type: PrinterTypes.EPSON,
-      interface: 'tcp://192.168.1.112', // <-- Set your printer's IP here
-      options: { timeout: 1000 },
+      interface: PRINTER_INTERFACE,
+      options: { timeout: 30000 },
       width: 48,
-      characterSet: CharacterSet.SLOVENIA,
-      breakLine: BreakLine.WORD,
-      removeSpecialCharacters: false,
-      lineCharacter: '-',
+      characterSet: CharacterSet.PC437_USA
     });
 
-     // Header
+    // Header
     printer.alignCenter();
+    printer.setTextSize(1, 1);
+    printer.bold(true);
     printer.println(restaurant || 'RESTAURANT NAME');
+    printer.bold(false);
     printer.println('123 Main Street, City');
     printer.println('Phone: (123) 456-7890');
     printer.drawLine();
 
+    // Order Details
     printer.alignLeft();
-    printer.println(`Order #: ${receiptId || order?.id?.slice(-6)}`);
-    printer.println(`Table: ${table || order?.table_number}`);
+    printer.println(`Order #: ${receiptId || order?.id?.slice(-6) || 'N/A'}`);
+    printer.println(`Table: ${table || order?.table_number || 'N/A'}`);
     printer.println(`Date: ${date || new Date().toLocaleDateString()}`);
     printer.println(`Time: ${time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
     printer.drawLine();
 
     // Items
-    items.forEach((item) => {
-      printer.println(`${item.name}${item.portion_size ? ` (${item.portion_size})` : ''}`);
-      if (item.customization_notes) {
-        printer.println(`  *${item.customization_notes}`);
-      }
-      printer.leftRight(
-        `x${item.quantity} @ ${item.unit_price.toFixed(2)}`,
-        (item.total_price || (item.unit_price * item.quantity)).toFixed(2)
-      );
-    });
+    if (items && items.length > 0) {
+      items.forEach((item) => {
+        printer.println(`${item.name}${item.portion_size ? ` (${item.portion_size})` : ''}`);
+        if (item.customization_notes) {
+          printer.println(`  *${item.customization_notes}`);
+        }
+        printer.leftRight(
+          `x${item.quantity} @ ${item.unit_price?.toFixed(2) || '0.00'}`,
+          (item.total_price || (item.unit_price * item.quantity) || 0).toFixed(2)
+        );
+      });
+    }
     printer.drawLine();
 
     // Totals
-    printer.println(`Subtotal: Ksh ${totals?.subtotal?.toFixed(2)}`);
-    printer.println(`Tax (16%): Ksh ${totals?.tax?.toFixed(2)}`);
-    printer.println(`Total: Ksh ${totals?.total?.toFixed(2)}`);
+    printer.alignRight();
+    if (totals?.subtotal) {
+      printer.println(`Subtotal: Ksh ${totals.subtotal.toFixed(2)}`);
+    }
+    if (totals?.tax) {
+      printer.println(`Tax (16%): Ksh ${totals.tax.toFixed(2)}`);
+    }
+    if (totals?.total) {
+      printer.bold(true);
+      printer.println(`Total: Ksh ${totals.total.toFixed(2)}`);
+      printer.bold(false);
+    }
     printer.drawLine();
 
+    // Footer
     printer.alignCenter();
     printer.println('Thank you for dining with us!');
+    
     printer.cut();
-    printer.openCashDrawer();
+    printer.beep();
 
-    // Print
-    const isConnected = await printer.isPrinterConnected();
-    if (!isConnected) {
-      return NextResponse.json({ success: false, error: 'Printer not connected' }, { status: 500 });
-    }
-    await printer.execute();
-
-    res.json({ success: true });
+    // 2. Get raw buffer
+    const buffer = printer.getBuffer();
+    
+    // 3. Physically force the data to printer
+    await forcePrint(buffer);
+    
+    res.json({ success: true, message: 'Receipt printed by force' });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message || 'Print error' });
+    res.status(500).json({ success: false, error: `FORCE PRINT FAILED: ${error.message || error}` });
   }
 });
 
