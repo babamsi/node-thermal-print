@@ -78,7 +78,7 @@ app.post('/print-receipt', async (req, res) => {
     printer.drawLine();
 
     // Items
-    items.forEach((item: any) => {
+    items.forEach((item) => {
       printer.println(`${item.name}${item.portion_size ? ` (${item.portion_size})` : ''}`);
       if (item.customization_notes) {
         printer.println(`  *${item.customization_notes}`);
