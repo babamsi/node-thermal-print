@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // FORCE printer to work with Express
-const PRINTER_INTERFACE = 'COM01'; // Use EXACTLY this format for Windows
+const PRINTER_INTERFACE = 'COM1'; // Use EXACTLY this format for Windows
 const PRINTER_BAUD_RATE = 9600; // Verify this matches your printer's spec
 
 // Nuclear option: Direct serial port control
