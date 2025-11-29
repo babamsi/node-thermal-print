@@ -67,18 +67,16 @@ app.post('/print-receipt', async (req, res) => {
 
     // Top spacing
     printer.println('');
-    printer.println('');
 
-    // Restaurant Header - Large & Bold
+    // Restaurant Header - Small, slightly bold
     printer.alignCenter();
-    printer.setTextSize(2, 2);
-    printer.bold(true);
-    printer.println('Orange');
     printer.setTextSize(1, 1);
+    printer.bold(true);
+    printer.println(restaurant || 'RESTAURANT NAME');
     printer.bold(false);
     printer.println('');
 
-    // Address & Contact - Smaller, elegant
+    // Address & Contact - Small text
     if (address) {
       printer.println(address);
     } else {
@@ -98,13 +96,11 @@ app.post('/print-receipt', async (req, res) => {
     // Order Information Section - Clean Layout
     printer.alignLeft();
     printer.setTextSize(1, 1);
-    printer.bold(true);
     printer.println('ORDER DETAILS');
-    printer.bold(false);
     printer.println('');
 
-    // Order info in two columns
-    const orderNum = receiptId || order?.id?.slice(-6) || 'N/A';
+    // Order info in two columns - Short order ID
+    const orderNum = receiptId ? receiptId.slice(-6) : (order?.id ? order.id.slice(-6) : 'N/A');
     const tableNum = table || order?.table_number || 'N/A';
     const orderDate = date || new Date().toLocaleDateString();
     const orderTime = time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -120,19 +116,15 @@ app.post('/print-receipt', async (req, res) => {
 
     // Items Section - Modern Table Format
     if (items && items.length > 0) {
-      printer.bold(true);
       printer.println('ITEMS');
-      printer.bold(false);
       printer.println('');
 
       // Items Table Header
-      printer.bold(true);
       printer.tableCustom([
         { text: 'Item', align: 'LEFT', width: 0.5 },
         { text: 'Qty', align: 'CENTER', width: 0.15 },
         { text: 'Total', align: 'RIGHT', width: 0.35 }
       ]);
-      printer.bold(false);
 
       printer.drawLine();
       printer.println('');
@@ -146,9 +138,7 @@ app.post('/print-receipt', async (req, res) => {
 
         // Item name (can wrap)
         printer.alignLeft();
-        printer.bold(true);
         printer.println(itemName);
-        printer.bold(false);
 
         // Customization notes if any
         if (item.customization_notes) {
@@ -195,11 +185,7 @@ app.post('/print-receipt', async (req, res) => {
     printer.drawLine();
     
     if (totals?.total) {
-      printer.setTextSize(1, 1);
-      printer.bold(true);
       printer.println(`TOTAL:        Ksh ${totals.total.toFixed(2)}`);
-      printer.bold(false);
-      printer.setTextSize(1, 1);
     }
 
     printer.drawLine();
@@ -221,11 +207,9 @@ app.post('/print-receipt', async (req, res) => {
     // Footer Section - Modern & Professional
     printer.alignCenter();
     printer.println('');
-    printer.println('━━━━━━━━━━━━━━━━━━━━━━━━');
+    printer.drawLine();
     printer.println('');
-    printer.bold(true);
     printer.println('Thank you for dining with us!');
-    printer.bold(false);
     printer.println('');
     printer.println('We appreciate your business');
     printer.println('');
@@ -235,7 +219,8 @@ app.post('/print-receipt', async (req, res) => {
       printer.println('');
       printer.printQR(receiptId || order.id);
       printer.println('');
-      printer.println(`Receipt ID: ${receiptId || order.id}`);
+      const shortReceiptId = receiptId ? receiptId.slice(-6) : (order?.id ? order.id.slice(-6) : '');
+      printer.println(`Receipt ID: ${shortReceiptId}`);
       printer.println('');
     }
 
