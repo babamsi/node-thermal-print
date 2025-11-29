@@ -50,7 +50,7 @@ app.get('/', (req,res) => {
 
 app.post('/print-receipt', async (req, res) => {
   try {
-    const { order, items, totals, restaurant, table, date, time, receiptId } = req.body;
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone } = req.body;
 
     // 1. Create printer commands (same config as /force-test)
     const printer = new ThermalPrinter({
@@ -58,61 +58,192 @@ app.post('/print-receipt', async (req, res) => {
       interface: PRINTER_INTERFACE,
       options: { timeout: 30000 },
       width: 48,
-      characterSet: CharacterSet.PC437_USA
+      characterSet: CharacterSet.SLOVENIA
     });
 
-    // Header
+    // ============================================
+    // MODERN RECEIPT DESIGN
+    // ============================================
+
+    // Top spacing
+    printer.println('');
+    printer.println('');
+
+    // Restaurant Header - Large & Bold
     printer.alignCenter();
+    printer.setTextSize(2, 2);
+    printer.bold(true);
+    printer.println('Orange');
+    printer.setTextSize(1, 1);
+    printer.bold(false);
+    printer.println('');
+
+    // Address & Contact - Smaller, elegant
+    if (address) {
+      printer.println(address);
+    } else {
+      printer.println('123 Main Street, City');
+    }
+    if (phone) {
+      printer.println(`Tel: ${phone}`);
+    } else {
+      printer.println('Phone: (123) 456-7890');
+    }
+    printer.println('');
+
+    // Decorative line
+    printer.drawLine();
+    printer.println('');
+
+    // Order Information Section - Clean Layout
+    printer.alignLeft();
     printer.setTextSize(1, 1);
     printer.bold(true);
-    printer.println(restaurant || 'RESTAURANT NAME');
+    printer.println('ORDER DETAILS');
     printer.bold(false);
-    printer.println('123 Main Street, City');
-    printer.println('Phone: (123) 456-7890');
-    printer.drawLine();
+    printer.println('');
 
-    // Order Details
-    printer.alignLeft();
-    printer.println(`Order #: ${receiptId || order?.id?.slice(-6) || 'N/A'}`);
-    printer.println(`Table: ${table || order?.table_number || 'N/A'}`);
-    printer.println(`Date: ${date || new Date().toLocaleDateString()}`);
-    printer.println(`Time: ${time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
-    printer.drawLine();
+    // Order info in two columns
+    const orderNum = receiptId || order?.id?.slice(-6) || 'N/A';
+    const tableNum = table || order?.table_number || 'N/A';
+    const orderDate = date || new Date().toLocaleDateString();
+    const orderTime = time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Items
+    printer.leftRight('Order #:', orderNum);
+    printer.leftRight('Table:', tableNum);
+    printer.leftRight('Date:', orderDate);
+    printer.leftRight('Time:', orderTime);
+    
+    printer.println('');
+    printer.drawLine();
+    printer.println('');
+
+    // Items Section - Modern Table Format
     if (items && items.length > 0) {
-      items.forEach((item) => {
-        printer.println(`${item.name}${item.portion_size ? ` (${item.portion_size})` : ''}`);
-        if (item.customization_notes) {
-          printer.println(`  *${item.customization_notes}`);
-        }
-        printer.leftRight(
-          `x${item.quantity} @ ${item.unit_price?.toFixed(2) || '0.00'}`,
-          (item.total_price || (item.unit_price * item.quantity) || 0).toFixed(2)
-        );
-      });
-    }
-    printer.drawLine();
+      printer.bold(true);
+      printer.println('ITEMS');
+      printer.bold(false);
+      printer.println('');
 
-    // Totals
+      // Items Table Header
+      printer.bold(true);
+      printer.tableCustom([
+        { text: 'Item', align: 'LEFT', width: 0.5 },
+        { text: 'Qty', align: 'CENTER', width: 0.15 },
+        { text: 'Total', align: 'RIGHT', width: 0.35 }
+      ]);
+      printer.bold(false);
+
+      printer.drawLine();
+      printer.println('');
+
+      // Items List
+      items.forEach((item) => {
+        const itemName = `${item.menu_item_name}${item.portion_size ? ` (${item.portion_size})` : ''}`;
+        const quantity = item.quantity || 1;
+        const unitPrice = item.unit_price || 0;
+        const itemTotal = item.total_price || (unitPrice * quantity);
+
+        // Item name (can wrap)
+        printer.alignLeft();
+        printer.bold(true);
+        printer.println(itemName);
+        printer.bold(false);
+
+        // Customization notes if any
+        if (item.customization_notes) {
+          printer.println(`  └ ${item.customization_notes}`);
+        }
+
+        // Price details
+        printer.tableCustom([
+          { text: '', align: 'LEFT', width: 0.5 },
+          { text: `x${quantity}`, align: 'CENTER', width: 0.15 },
+          { text: `Ksh ${itemTotal.toFixed(2)}`, align: 'RIGHT', width: 0.35 }
+        ]);
+
+        // Show unit price if different from total
+        if (quantity > 1) {
+          printer.tableCustom([
+            { text: `  @ Ksh ${unitPrice.toFixed(2)}`, align: 'LEFT', width: 0.5 },
+            { text: '', align: 'CENTER', width: 0.15 },
+            { text: '', align: 'RIGHT', width: 0.35 }
+          ]);
+        }
+
+        printer.println('');
+      });
+
+      printer.drawLine();
+      printer.println('');
+    }
+
+    // Totals Section - Prominent & Clear
     printer.alignRight();
+    printer.println('');
+
     if (totals?.subtotal) {
-      printer.println(`Subtotal: Ksh ${totals.subtotal.toFixed(2)}`);
+      printer.println(`Subtotal:     Ksh ${totals.subtotal.toFixed(2)}`);
     }
     if (totals?.tax) {
-      printer.println(`Tax (16%): Ksh ${totals.tax.toFixed(2)}`);
+      printer.println(`Tax (16%):    Ksh ${totals.tax.toFixed(2)}`);
     }
-    if (totals?.total) {
-      printer.bold(true);
-      printer.println(`Total: Ksh ${totals.total.toFixed(2)}`);
-      printer.bold(false);
+    if (totals?.discount && totals.discount > 0) {
+      printer.println(`Discount:     Ksh ${totals.discount.toFixed(2)}`);
     }
-    printer.drawLine();
 
-    // Footer
-    printer.alignCenter();
-    printer.println('Thank you for dining with us!');
+    printer.drawLine();
     
+    if (totals?.total) {
+      printer.setTextSize(1, 1);
+      printer.bold(true);
+      printer.println(`TOTAL:        Ksh ${totals.total.toFixed(2)}`);
+      printer.bold(false);
+      printer.setTextSize(1, 1);
+    }
+
+    printer.drawLine();
+    printer.println('');
+
+    // Payment Method (if provided)
+    if (req.body.paymentMethod) {
+      printer.alignLeft();
+      printer.println(`Payment: ${req.body.paymentMethod}`);
+      if (req.body.paymentMethod === 'Cash' && req.body.cashReceived) {
+        printer.println(`Received: Ksh ${req.body.cashReceived.toFixed(2)}`);
+        if (req.body.change) {
+          printer.println(`Change:  Ksh ${req.body.change.toFixed(2)}`);
+        }
+      }
+      printer.println('');
+    }
+
+    // Footer Section - Modern & Professional
+    printer.alignCenter();
+    printer.println('');
+    printer.println('━━━━━━━━━━━━━━━━━━━━━━━━');
+    printer.println('');
+    printer.bold(true);
+    printer.println('Thank you for dining with us!');
+    printer.bold(false);
+    printer.println('');
+    printer.println('We appreciate your business');
+    printer.println('');
+
+    // QR Code for receipt verification (if receiptId provided)
+    if (receiptId || order?.id) {
+      printer.println('');
+      printer.printQR(receiptId || order.id);
+      printer.println('');
+      printer.println(`Receipt ID: ${receiptId || order.id}`);
+      printer.println('');
+    }
+
+    // Bottom spacing
+    printer.println('');
+    printer.println('');
+
+    // Cut and beep
     printer.cut();
     printer.beep();
 
@@ -122,7 +253,7 @@ app.post('/print-receipt', async (req, res) => {
     // 3. Physically force the data to printer
     await forcePrint(buffer);
     
-    res.json({ success: true, message: 'Receipt printed by force' });
+    res.json({ success: true, message: 'Modern receipt printed successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: `FORCE PRINT FAILED: ${error.message || error}` });
   }
