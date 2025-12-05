@@ -449,7 +449,7 @@ app.post('/print-receipt', async (req, res) => {
 
     // Order info in two columns - Short order ID
     const orderNum = receiptId ? receiptId.slice(-6) : (order?.id ? order.id.slice(-6) : 'N/A');
-    const tableNum = table || order?.table_number || 'N/A';
+    const tableNum =  table === 'Take Away' ? (order?.order_type || 'Take Away') : (table || order?.table_number || 'N/A');
     const orderDate = date || new Date().toLocaleDateString();
     const orderTime = time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
