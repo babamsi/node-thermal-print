@@ -498,6 +498,10 @@ if (req.body.homeDelivery) {
         printer.alignLeft();
         printer.println(itemName);
 
+        if (order?.order_type === "bolt" || order?.order_type === "glovo") {
+
+        }
+
         // Customization notes if any
         if (item.customization_notes) {
           printer.println(`  └ ${item.customization_notes}`);
