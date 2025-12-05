@@ -1,5 +1,5 @@
+// Updated printday server code with glovo and bolt separation
 app.post('/printday', async (req, res) => {
-
   try {
     const { orders, dateRange, totals, restaurant, address, phone } = req.body;
 
@@ -16,11 +16,12 @@ app.post('/printday', async (req, res) => {
       characterSet: CharacterSet.SLOVENIA
     });
 
-
     // Calculate payment method totals
     let totalCash = 0;
     let totalMpesa = 0;
     let totalCard = 0;
+    let totalGlovo = 0;
+    let totalBolt = 0;
 
     // Calculate order type totals
     let dineInTotal = 0;
@@ -33,7 +34,18 @@ app.post('/printday', async (req, res) => {
       const orderTotal = order.total_amount || 0;
       const paymentInfo = parsePaymentMethod(order.payment_method);
       
-      if (paymentInfo.isSplit) {
+      // Check if payment method is glovo or bolt first (these should be separate)
+      const pmStr = typeof order.payment_method === 'string' 
+        ? order.payment_method.toLowerCase() 
+        : '';
+      
+      if (pmStr === 'glovo' || order.order_type === 'glovo') {
+        // Glovo orders - separate from cash
+        totalGlovo += orderTotal;
+      } else if (pmStr === 'bolt' || order.order_type === 'bolt') {
+        // Bolt orders - separate from cash
+        totalBolt += orderTotal;
+      } else if (paymentInfo.isSplit) {
         // Split payment - use the parsed amounts directly
         totalCash += paymentInfo.cash;
         totalMpesa += paymentInfo.mpesa;
@@ -45,10 +57,6 @@ app.post('/printday', async (req, res) => {
         totalCard += paymentInfo.card;
       } else {
         // Single payment method stored as string - infer from string
-        const pmStr = typeof order.payment_method === 'string' 
-          ? order.payment_method.toLowerCase() 
-          : '';
-        
         if (pmStr.includes('cash') || pmStr === 'cash') {
           totalCash += orderTotal;
         } else if (pmStr.includes('mpesa') || pmStr === 'mpesa') {
@@ -56,7 +64,7 @@ app.post('/printday', async (req, res) => {
         } else if (pmStr.includes('card') || pmStr === 'card') {
           totalCard += orderTotal;
         } else {
-          // Default to cash if unknown
+          // Default to cash if unknown (but not glovo/bolt)
           totalCash += orderTotal;
         }
       }
@@ -74,7 +82,6 @@ app.post('/printday', async (req, res) => {
         orderTypeCounts['home_delivery'] = (orderTypeCounts['home_delivery'] || 0) + 1;
       }
     });
-
 
     // ============================================
     // MODERN RECEIPT DESIGN
@@ -160,6 +167,12 @@ app.post('/printday', async (req, res) => {
     printer.leftRight('Mpesa Total:', `Ksh ${totalMpesa.toFixed(2)}`);
     if (totalCard > 0) {
       printer.leftRight('Card Total:', `Ksh ${totalCard.toFixed(2)}`);
+    }
+    if (totalGlovo > 0) {
+      printer.leftRight('Glovo Total:', `Ksh ${totalGlovo.toFixed(2)}`);
+    }
+    if (totalBolt > 0) {
+      printer.leftRight('Bolt Total:', `Ksh ${totalBolt.toFixed(2)}`);
     }
 
     printer.println('');
@@ -295,5 +308,4 @@ app.post('/printday', async (req, res) => {
       error: `PRINT FAILED: ${error.message || error}` 
     });
   }
-  
 })
