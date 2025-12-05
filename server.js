@@ -83,7 +83,7 @@ function parsePaymentMethod(paymentMethod) {
 }
 
 
-app.post('/printday', (req, res) => {
+app.post('/printday', async (req, res) => {
 
   try {
     const { orders, dateRange, totals, restaurant, address, phone } = req.body;
@@ -367,19 +367,13 @@ app.post('/printday', (req, res) => {
     printer.cut();
     printer.beep();
 
-    // Get buffer and print
+   // 2. Get raw buffer
     const buffer = printer.getBuffer();
-
-    // Check if printer is connected
-    const isConnected = await printer.isPrinterConnected();
-    if (!isConnected) {
-      return res.status(500).json({ success: false, error: 'Printer not connected' });
-    }
-
-    // Execute print
-    await printer.execute();
-
-    return res.json({ success: true, message: 'Day sales report printed successfully' });
+    
+    // 3. Physically force the data to printer
+    await forcePrint(buffer);
+    
+    res.json({ success: true, message: 'Modern receipt printed successfully' });
   } catch (error) {
     console.error('Print day sales error:', error);
     return res.status(500).json({ 
