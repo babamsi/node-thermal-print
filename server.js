@@ -455,6 +455,22 @@ app.post('/print-receipt', async (req, res) => {
 
     printer.leftRight('Order #:', orderNum);
     printer.leftRight('Table:', tableNum);
+
+// Add home delivery details if available
+if (req.body.homeDelivery) {
+  const { address: deliveryAddress, name: deliveryName, phone: deliveryPhone } = req.body.homeDelivery;
+  
+  if (deliveryAddress) {
+    printer.leftRight('Address:', deliveryAddress);
+  }
+  if (deliveryName) {
+    printer.leftRight('Name:', deliveryName);
+  }
+  if (deliveryPhone) {
+    printer.leftRight('Phone:', deliveryPhone);
+  }
+}
+    
     printer.leftRight('Date:', orderDate);
     printer.leftRight('Time:', orderTime);
     
