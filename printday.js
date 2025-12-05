@@ -1,51 +1,21 @@
-// Helper function to parse payment method
-function parsePaymentMethod(paymentMethod) {
-  let cash = 0;
-  let mpesa = 0;
-  let card = 0;
-  let isSplit = false;
+app.post('/printday', async (req, res) => {
 
-  if (!paymentMethod) {
-    return { cash, mpesa, card, isSplit };
-  }
-
-  // If it's a string, try to parse it
-  if (typeof paymentMethod === 'string') {
-    if (paymentMethod.startsWith('{')) {
-      try {
-        paymentMethod = JSON.parse(paymentMethod);
-      } catch {
-        // If parsing fails, return empty
-        return { cash: 0, mpesa: 0, card: 0, isSplit: false };
-      }
-    } else {
-      // Simple string payment method - return empty, caller will use order total
-      return { cash: 0, mpesa: 0, card: 0, isSplit: false };
-    }
-  }
-
-  // If it's an object
-  if (typeof paymentMethod === 'object' && paymentMethod !== null) {
-    cash = Number(paymentMethod.cash) || 0;
-    mpesa = Number(paymentMethod.mpesa) || 0;
-    card = Number(paymentMethod.card) || 0;
-    
-    // Check if it's a split payment (multiple methods with amounts > 0)
-    const methodsWithAmount = [cash > 0, mpesa > 0, card > 0].filter(Boolean).length;
-    isSplit = methodsWithAmount > 1;
-  }
-
-  return { cash, mpesa, card, isSplit };
-}
-
-// Express route handler
-async function printDaySales(req, res) {
   try {
     const { orders, dateRange, totals, restaurant, address, phone } = req.body;
 
     if (!orders || !Array.isArray(orders) || orders.length === 0) {
       return res.status(400).json({ success: false, error: 'No orders provided' });
     }
+
+    // Create printer commands
+    const printer = new ThermalPrinter({
+      type: PrinterTypes.EPSON,
+      interface: PRINTER_INTERFACE,
+      options: { timeout: 30000 },
+      width: 48,
+      characterSet: CharacterSet.SLOVENIA
+    });
+
 
     // Calculate payment method totals
     let totalCash = 0;
@@ -105,17 +75,6 @@ async function printDaySales(req, res) {
       }
     });
 
-    // Create printer
-    const printer = new ThermalPrinter({
-      type: PrinterTypes.EPSON,
-      interface: PRINTER_INTERFACE,
-      options: { timeout: 30000 },
-      width: 48,
-      characterSet: CharacterSet.SLOVENIA,
-      breakLine: BreakLine.WORD,
-      removeSpecialCharacters: false,
-      lineCharacter: '-',
-    });
 
     // ============================================
     // MODERN RECEIPT DESIGN
@@ -126,7 +85,7 @@ async function printDaySales(req, res) {
 
     // Restaurant Header - Small, slightly bold
     printer.alignCenter();
-    printer.setTextSize(1, 1);
+    printer.setTextSize(0, 0);
     printer.bold(true);
     printer.println(restaurant || 'RESTAURANT NAME');
     printer.bold(false);
@@ -151,7 +110,7 @@ async function printDaySales(req, res) {
 
     // Report Information Section
     printer.alignLeft();
-    printer.setTextSize(1, 1);
+    printer.setTextSize(0, 0);
     printer.println('DAY SALES REPORT');
     printer.println('');
 
@@ -322,19 +281,13 @@ async function printDaySales(req, res) {
     printer.cut();
     printer.beep();
 
-    // Get buffer and print
+   // 2. Get raw buffer
     const buffer = printer.getBuffer();
-
-    // Check if printer is connected
-    const isConnected = await printer.isPrinterConnected();
-    if (!isConnected) {
-      return res.status(500).json({ success: false, error: 'Printer not connected' });
-    }
-
-    // Execute print
-    await printer.execute();
-
-    return res.json({ success: true, message: 'Day sales report printed successfully' });
+    
+    // 3. Physically force the data to printer
+    await forcePrint(buffer);
+    
+    res.json({ success: true, message: 'Modern receipt printed successfully' });
   } catch (error) {
     console.error('Print day sales error:', error);
     return res.status(500).json({ 
@@ -342,4 +295,5 @@ async function printDaySales(req, res) {
       error: `PRINT FAILED: ${error.message || error}` 
     });
   }
-}
+  
+})
