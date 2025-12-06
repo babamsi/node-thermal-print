@@ -500,6 +500,8 @@ if (req.body.homeDelivery) {
     let levy = 0;
     let finalTotal = 0;
 
+	if (order?.order_type !== "bolt" || order?.order_type !== "glovo") {
+	  
     if (totals?.total) {
       // Total includes 18% (16% VAT + 2% Levy)
       // So if total = X, then subtotal before tax = X / 1.18
@@ -539,6 +541,8 @@ if (req.body.homeDelivery) {
     printer.leftRight(totalLabel, totalValue);
     printer.bold(false);
 
+	
+
     printer.println('');
 
 
@@ -547,6 +551,8 @@ if (req.body.homeDelivery) {
 	
     printer.println('Till Number: 4983042');
     printer.bold(false);
+
+	}
 
     printer.println('');
 
