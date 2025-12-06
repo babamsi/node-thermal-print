@@ -108,12 +108,11 @@ app.post('/forkitchenpr1', async (req, res) => {
     if (hasNewItems) {
       printer.alignLeft();
       printer.bold(true);
-      printer.println('NEW/REPLACED ITEMS:');
+      // Use different label based on whether it's a replacement or addition
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      printer.println(isReplacement ? 'REPLACED ITEM:' : 'NEW ITEMS:');
       printer.bold(false);
       printer.println('');
-      
-      // Check if this is a replacement (single new item typically indicates replacement)
-      const isReplacement = newItems.length === 1 && hasPreviousItems;
       
       newItems.forEach((item) => {
         const quantity = item.quantity || 1;
@@ -305,12 +304,11 @@ app.post('/forkitchenpr2', async (req, res) => {
     if (hasNewItems) {
       printer.alignLeft();
       printer.bold(true);
-      printer.println('NEW/REPLACED ITEMS:');
+      // Use different label based on whether it's a replacement or addition
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      printer.println(isReplacement ? 'REPLACED ITEM:' : 'NEW ITEMS:');
       printer.bold(false);
       printer.println('');
-      
-      // Check if this is a replacement (single new item typically indicates replacement)
-      const isReplacement = newItems.length === 1 && hasPreviousItems;
       
       newItems.forEach((item) => {
         const quantity = item.quantity || 1;
@@ -501,12 +499,11 @@ app.post('/forkitchenpr3', async (req, res) => {
     if (hasNewItems) {
       printer.alignLeft();
       printer.bold(true);
-      printer.println('NEW/REPLACED ITEMS:');
+      // Use different label based on whether it's a replacement or addition
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      printer.println(isReplacement ? 'REPLACED ITEM:' : 'NEW ITEMS:');
       printer.bold(false);
       printer.println('');
-      
-      // Check if this is a replacement (single new item typically indicates replacement)
-      const isReplacement = newItems.length === 1 && hasPreviousItems;
       
       newItems.forEach((item) => {
         const quantity = item.quantity || 1;
