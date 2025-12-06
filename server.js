@@ -500,8 +500,32 @@ if (req.body.homeDelivery) {
     let levy = 0;
     let finalTotal = 0;
 
-	if (order?.order_type !== "bolt" || order?.order_type !== "glovo") {
-	  
+    if (order?.order_type === "bolt" || order?.order_type === "glovo") {
+		    printer.println('');
+
+
+    // THANK YOU Section
+    printer.alignCenter();
+    printer.bold(true);
+    printer.setTextSize(1, 1);
+    printer.println('THANK YOU!');
+    printer.bold(false);
+    printer.setTextSize(0, 0);
+    printer.println('Enjoy your Orange Dessert');
+    printer.println('');
+    printer.println('');
+    printer.println('');
+
+    // Powered by MAAMUL
+    printer.alignCenter();
+    printer.println('- POWERED BY MAAMUL -');
+
+    printer.setTextSize(0,0)
+    printer.println('maamul.com')
+
+
+} else {
+
     if (totals?.total) {
       // Total includes 18% (16% VAT + 2% Levy)
       // So if total = X, then subtotal before tax = X / 1.18
@@ -541,8 +565,6 @@ if (req.body.homeDelivery) {
     printer.leftRight(totalLabel, totalValue);
     printer.bold(false);
 
-	
-
     printer.println('');
 
 
@@ -552,7 +574,7 @@ if (req.body.homeDelivery) {
     printer.println('Till Number: 4983042');
     printer.bold(false);
 
-	}
+  
 
     printer.println('');
 
@@ -576,7 +598,7 @@ if (req.body.homeDelivery) {
     printer.setTextSize(0,0)
     printer.println('maamul.com')
 
-
+}
     // Cut and beep
     printer.cut();
     printer.beep();
@@ -591,92 +613,90 @@ if (req.body.homeDelivery) {
   }
 });
 
-app.post('/forkitchen', async (req, res) => {
+
+app.post('/forkitchenpr1', async (req, res) => {
   try {
-    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone } = req.body;
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone, isUpdate, previousItems, newItems } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, error: 'No items provided' });
+      return res.status(400).json({ success: false, error: 'No items provided for Printer 1' });
     }
 
-    // Define category to printer mapping
-    const SERIAL_PRINTER_CATEGORIES = ['Juices', 'Milkshakes', 'Smoothies', 'Treat Cups', 'Boba Mojitos'];
-    const NETWORK_PRINTER_1_CATEGORIES = ['Cold Coffee', 'Gelato'];
-    const SERIAL_PRINTER_INTERFACE = PRINTER_INTERFACE; // COM7
-    const NETWORK_PRINTER_1_INTERFACE = 'tcp://192.168.0.1';
-    const NETWORK_PRINTER_2_INTERFACE = 'tcp://192.168.0.199';
+    const hasPreviousItems = isUpdate && previousItems && Array.isArray(previousItems) && previousItems.length > 0;
+    const hasNewItems = isUpdate && newItems && Array.isArray(newItems) && newItems.length > 0;
 
-    // Group items by category
-    const serialPrinterItems = [];
-    const networkPrinter1Items = [];
-    const networkPrinter2Items = [];
+    if (isUpdate) {
+      console.log(`[PRINTER 1] Printing order update - ${previousItems?.length || 0} previous items, ${newItems?.length || 0} new items`);
+    } else {
+      console.log(`[PRINTER 1] Printing ${items.length} items to Serial Printer (COM7)`);
+    }
 
-    items.forEach((item) => {
-      const category = item.category || 'Uncategorized';
-      
-      if (SERIAL_PRINTER_CATEGORIES.includes(category)) {
-        serialPrinterItems.push(item);
-      } else if (NETWORK_PRINTER_1_CATEGORIES.includes(category)) {
-        networkPrinter1Items.push(item);
-      } else {
-        networkPrinter2Items.push(item);
-      }
+    const printer = new ThermalPrinter({
+      type: PrinterTypes.EPSON,
+      interface: PRINTER_INTERFACE, // COM7
+      options: { timeout: 30000 },
+      width: 48,
+      characterSet: CharacterSet.SLOVENIA
     });
 
-    // Helper function to print to a specific printer
-    const printToPrinter = async (itemsToPrint, printerInterface) => {
-      if (itemsToPrint.length === 0) return;
+    // Header
+    printer.setTextSize(0, 0);
+    printer.println('');
 
-      const isNetworkPrinter = printerInterface.startsWith('tcp://');
-      
-      const printer = new ThermalPrinter({
-        type: PrinterTypes.EPSON,
-        interface: printerInterface,
-        options: { timeout: 30000 },
-        width: 48,
-        characterSet: CharacterSet.SLOVENIA
-      });
+    // Branch name
+    printer.alignCenter();
+    const branchName = 'South C Branch';
+    const branchLine = `-------- ${branchName} --------`;
+    printer.println(branchLine);
+    printer.println('');
 
-      // Header
-      printer.setTextSize(0, 0);
+    // Order #, Table, Date, Time
+    printer.alignLeft();
+    const fullOrderId = receiptId || (order?.id || 'N/A');
+    const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
+    printer.setTextSize(1,1);
+    printer.leftRight('Order #', orderNum);
+    printer.setTextSize(0, 0);
+
+    const tableNum = table || order?.table_number || 'N/A';
+    const orderDate = date || new Date().toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+    const orderTime = time || new Date().toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      second: '2-digit', 
+      hour12: true 
+    });
+
+    printer.leftRight('Table #', tableNum);
+    printer.leftRight('Date', orderDate);
+    printer.leftRight('Time', orderTime);
+    
+    // Show update indicator if this is an order update
+    if (isUpdate) {
       printer.println('');
-
-      // Branch name
       printer.alignCenter();
-      const branchName = 'South C Branch';
-      const branchLine = `-------- ${branchName} --------`;
-      printer.println(branchLine);
-      printer.println('');
-
-      // Order #, Table, Date, Time
+      printer.bold(true);
+      printer.println('*** ORDER UPDATE ***');
+      printer.bold(false);
       printer.alignLeft();
-      const fullOrderId = receiptId || (order?.id || 'N/A');
-      const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
-      printer.leftRight('Order #', orderNum);
+    }
+    
+    printer.println('');
+    printer.drawLine('-');
+    printer.println('');
 
-      const tableNum = table || order?.table_number || 'N/A';
-      const orderDate = date || new Date().toLocaleDateString('en-US', { 
-        weekday: 'short', 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric' 
-      });
-      const orderTime = time || new Date().toLocaleTimeString('en-US', { 
-        hour: 'numeric', 
-        minute: '2-digit', 
-        second: '2-digit', 
-        hour12: true 
-      });
-
-      printer.leftRight('Table #', tableNum);
-      printer.leftRight('Date', orderDate);
-      printer.leftRight('Time', orderTime);
+    // Previous Items (if this is an update)
+    if (hasPreviousItems) {
+      printer.alignLeft();
+      printer.println('PREVIOUS ITEMS:');
       printer.println('');
-      printer.drawLine('-');
-      printer.println('');
-
-      // Items List
-      itemsToPrint.forEach((item) => {
+      
+      previousItems.forEach((item) => {
         const quantity = item.quantity || 1;
         const itemName = item.menu_item_name || 'Item';
         const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
@@ -690,55 +710,488 @@ app.post('/forkitchen', async (req, res) => {
         }
         printer.println('');
       });
-
+      
       printer.drawLine('-');
       printer.println('');
-
-      // Cut and beep
-      printer.cut();
-      printer.beep();
-
-      // Print based on printer type
-      if (isNetworkPrinter) {
-        // For network printers, use the printer.execute() method directly
-        await printer.execute();
-      } else {
-        // For serial port, get buffer and use force print
-        const buffer = printer.getBuffer();
-        await forcePrint(buffer);
-      }
-    };
-
-    // Print to each printer as needed
-    const printPromises = [];
-
-    if (serialPrinterItems.length > 0) {
-      console.log(`Printing ${serialPrinterItems.length} items to serial printer (COM7)`);
-      printPromises.push(printToPrinter(serialPrinterItems, SERIAL_PRINTER_INTERFACE));
     }
 
-    if (networkPrinter1Items.length > 0) {
-      console.log(`Printing ${networkPrinter1Items.length} items to network printer 1 (192.168.0.1)`);
-      printPromises.push(printToPrinter(networkPrinter1Items, NETWORK_PRINTER_1_INTERFACE));
+    // New/Replaced Items
+    if (hasNewItems) {
+      printer.alignLeft();
+      printer.bold(true);
+      // Use different label based on whether it's a replacement or addition
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      printer.println(isReplacement ? 'REPLACED ITEM:' : 'NEW ITEMS:');
+      printer.bold(false);
+      printer.println('');
+      
+      newItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        
+        // Invert text for replaced items to make them stand out
+        if (isReplacement) {
+          printer.invert(true);
+          printer.println(itemLine);
+          printer.invert(false);
+          
+          // Customization notes for replaced item (also inverted)
+          if (item.customization_notes) {
+            printer.invert(true);
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+            printer.invert(false);
+          }
+        } else {
+          printer.println(itemLine);
+          
+          // Customization notes
+          if (item.customization_notes) {
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+          }
+        }
+        printer.println('');
+      });
+    } else {
+      // Regular items list (for new orders)
+      items.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
     }
 
-    if (networkPrinter2Items.length > 0) {
-      console.log(`Printing ${networkPrinter2Items.length} items to network printer 2 (192.168.0.199)`);
-      printPromises.push(printToPrinter(networkPrinter2Items, NETWORK_PRINTER_2_INTERFACE));
-    }
+    printer.drawLine('-');
+    printer.println('');
 
-    // Wait for all prints to complete
-    await Promise.all(printPromises);
+    // Cut and beep
+    printer.cut();
+    printer.beep();
 
-    res.json({ success: true, message: 'Kitchen tickets printed successfully to multiple printers' });
+    // Get buffer and print using serial port
+    const buffer = printer.getBuffer();
+    await forcePrint(buffer);
+
+    console.log('[PRINTER 1] Print completed successfully');
+    res.json({ success: true, message: 'Printed to Serial Printer (COM7)', printer: 'Printer 1' });
+
   } catch (error) {
-    console.error('Print kitchen ticket error:', error);
+    console.error('[PRINTER 1] Print error:', error);
     res.status(500).json({ 
       success: false, 
-      error: `PRINT FAILED: ${error.message || error}` 
+      error: `PRINTER 1 FAILED: ${error.message || error}`,
+      printer: 'Printer 1'
     });
   }
 });
+
+// ============================================
+// PRINTER 2: Network Printer 1 (192.168.0.1)
+// Categories: Cold Coffee, Gelato
+// ============================================
+app.post('/forkitchenpr2', async (req, res) => {
+  try {
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone, isUpdate, previousItems, newItems } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'No items provided for Printer 2' });
+    }
+
+    const hasPreviousItems = isUpdate && previousItems && Array.isArray(previousItems) && previousItems.length > 0;
+    const hasNewItems = isUpdate && newItems && Array.isArray(newItems) && newItems.length > 0;
+
+    if (isUpdate) {
+      console.log(`[PRINTER 2] Printing order update - ${previousItems?.length || 0} previous items, ${newItems?.length || 0} new items`);
+    } else {
+      console.log(`[PRINTER 2] Printing ${items.length} items to Network Printer 1 (192.168.0.1)`);
+    }
+
+    const printer = new ThermalPrinter({
+      type: PrinterTypes.EPSON,
+      interface: 'tcp://192.168.0.1',
+      options: { timeout: 30000 },
+      width: 48,
+      characterSet: CharacterSet.SLOVENIA
+    });
+
+    // Check if printer is connected (optional for network printers)
+    try {
+      const isConnected = await printer.isPrinterConnected();
+      if (!isConnected) {
+        console.warn('[PRINTER 2] Printer may not be connected at 192.168.0.1');
+      }
+    } catch (checkError) {
+      console.warn('[PRINTER 2] Could not check connection:', checkError.message);
+      // Continue anyway
+    }
+
+    // Header
+    printer.setTextSize(0, 0);
+    printer.println('');
+
+    // Branch name
+    printer.alignCenter();
+    const branchName = 'South C Branch';
+    const branchLine = `-------- ${branchName} --------`;
+    printer.println(branchLine);
+    printer.println('');
+
+    // Order #, Table, Date, Time
+    printer.alignLeft();
+    const fullOrderId = receiptId || (order?.id || 'N/A');
+    const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
+    printer.setTextSize(1, 1);
+    printer.leftRight('Order #', orderNum);
+    printer.setTextSize(0, 0);
+
+    const tableNum = table || order?.table_number || 'N/A';
+    const orderDate = date || new Date().toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+    const orderTime = time || new Date().toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      second: '2-digit', 
+      hour12: true 
+    });
+
+    printer.leftRight('Table #', tableNum);
+    printer.leftRight('Date', orderDate);
+    printer.leftRight('Time', orderTime);
+    
+    // Show update indicator if this is an order update
+    if (isUpdate) {
+      printer.println('');
+      printer.alignCenter();
+      printer.bold(true);
+      printer.println('*** ORDER UPDATE ***');
+      printer.bold(false);
+      printer.alignLeft();
+    }
+    
+    printer.println('');
+    printer.drawLine('-');
+    printer.println('');
+
+    // Previous Items (if this is an update)
+    if (hasPreviousItems) {
+      printer.alignLeft();
+      printer.println('PREVIOUS ITEMS:');
+      printer.println('');
+      
+      previousItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+      
+      printer.drawLine('-');
+      printer.println('');
+    }
+
+    // New/Replaced Items
+    if (hasNewItems) {
+      printer.alignLeft();
+      printer.bold(true);
+      // Use different label based on whether it's a replacement or addition
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      printer.println(isReplacement ? 'REPLACED ITEM:' : 'NEW ITEMS:');
+      printer.bold(false);
+      printer.println('');
+      
+      newItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        
+        // Invert text for replaced items to make them stand out
+        if (isReplacement) {
+          printer.invert(true);
+          printer.println(itemLine);
+          printer.invert(false);
+          
+          // Customization notes for replaced item (also inverted)
+          if (item.customization_notes) {
+            printer.invert(true);
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+            printer.invert(false);
+          }
+        } else {
+          printer.println(itemLine);
+          
+          // Customization notes
+          if (item.customization_notes) {
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+          }
+        }
+        printer.println('');
+      });
+    } else {
+      // Regular items list (for new orders)
+      items.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+    }
+
+    printer.drawLine('-');
+    printer.println('');
+
+    // Cut and beep
+    printer.cut();
+    printer.beep();
+
+    // Execute print for network printer
+    await printer.execute();
+
+    console.log('[PRINTER 2] Print completed successfully');
+    res.json({ success: true, message: 'Printed to Network Printer 1 (192.168.0.1)', printer: 'Printer 2' });
+
+  } catch (error) {
+    console.error('[PRINTER 2] Print error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: `PRINTER 2 FAILED: ${error.message || error}`,
+      printer: 'Printer 2'
+    });
+  }
+});
+
+// ============================================
+// PRINTER 3: Network Printer 2 (192.168.0.199)
+// Categories: All other categories
+// ============================================
+app.post('/forkitchenpr3', async (req, res) => {
+  try {
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone, isUpdate, previousItems, newItems } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'No items provided for Printer 3' });
+    }
+
+    const hasPreviousItems = isUpdate && previousItems && Array.isArray(previousItems) && previousItems.length > 0;
+    const hasNewItems = isUpdate && newItems && Array.isArray(newItems) && newItems.length > 0;
+
+    if (isUpdate) {
+      console.log(`[PRINTER 3] Printing order update - ${previousItems?.length || 0} previous items, ${newItems?.length || 0} new items`);
+    } else {
+      console.log(`[PRINTER 3] Printing ${items.length} items to Network Printer 2 (192.168.0.199)`);
+    }
+
+    const printer = new ThermalPrinter({
+      type: PrinterTypes.EPSON,
+      interface: 'tcp://192.168.0.199',
+      options: { timeout: 30000 },
+      width: 48,
+      characterSet: CharacterSet.SLOVENIA
+    });
+
+    // Check if printer is connected (optional for network printers)
+    try {
+      const isConnected = await printer.isPrinterConnected();
+      if (!isConnected) {
+        console.warn('[PRINTER 3] Printer may not be connected at 192.168.0.199');
+      }
+    } catch (checkError) {
+      console.warn('[PRINTER 3] Could not check connection:', checkError.message);
+      // Continue anyway
+    }
+
+    // Header
+    printer.setTextSize(0, 0);
+    printer.println('');
+
+    // Branch name
+    printer.alignCenter();
+    const branchName = 'South C Branch';
+    const branchLine = `-------- ${branchName} --------`;
+    printer.println(branchLine);
+    printer.println('');
+
+    // Order #, Table, Date, Time
+    printer.alignLeft();
+    const fullOrderId = receiptId || (order?.id || 'N/A');
+    const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
+    printer.setTextSize(1, 1);
+    printer.leftRight('Order #', orderNum);
+    printer.setTextSize(0, 0);
+
+    const tableNum = table || order?.table_number || 'N/A';
+    const orderDate = date || new Date().toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
+    const orderTime = time || new Date().toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      second: '2-digit', 
+      hour12: true 
+    });
+
+    printer.leftRight('Table #', tableNum);
+    printer.leftRight('Date', orderDate);
+    printer.leftRight('Time', orderTime);
+    
+    // Show update indicator if this is an order update
+    if (isUpdate) {
+      printer.println('');
+      printer.alignCenter();
+      printer.bold(true);
+      printer.println('*** ORDER UPDATE ***');
+      printer.bold(false);
+      printer.alignLeft();
+    }
+    
+    printer.println('');
+    printer.drawLine('-');
+    printer.println('');
+
+    // Previous Items (if this is an update)
+    if (hasPreviousItems) {
+      printer.alignLeft();
+      printer.println('PREVIOUS ITEMS:');
+      printer.println('');
+      
+      previousItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+      
+      printer.drawLine('-');
+      printer.println('');
+    }
+
+    // New/Replaced Items
+    if (hasNewItems) {
+      printer.alignLeft();
+      printer.bold(true);
+      // Use different label based on whether it's a replacement or addition
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      printer.println(isReplacement ? 'REPLACED ITEM:' : 'NEW ITEMS:');
+      printer.bold(false);
+      printer.println('');
+      
+      newItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        
+        // Invert text for replaced items to make them stand out
+        if (isReplacement) {
+          printer.invert(true);
+          printer.println(itemLine);
+          printer.invert(false);
+          
+          // Customization notes for replaced item (also inverted)
+          if (item.customization_notes) {
+            printer.invert(true);
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+            printer.invert(false);
+          }
+        } else {
+          printer.println(itemLine);
+          
+          // Customization notes
+          if (item.customization_notes) {
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+          }
+        }
+        printer.println('');
+      });
+    } else {
+      // Regular items list (for new orders)
+      items.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+    }
+
+    printer.drawLine('-');
+    printer.println('');
+
+    // Cut and beep
+    printer.cut();
+    printer.beep();
+
+    // Execute print for network printer
+    await printer.execute();
+
+    console.log('[PRINTER 3] Print completed successfully');
+    res.json({ success: true, message: 'Printed to Network Printer 2 (192.168.0.199)', printer: 'Printer 3' });
+
+  } catch (error) {
+    console.error('[PRINTER 3] Print error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: `PRINTER 3 FAILED: ${error.message || error}`,
+      printer: 'Printer 3'
+    });
+  }
+});
+
+
 
 // Test print endpoint (GUARANTEED to work)
 app.get('/force-test', async (req, res) => {
