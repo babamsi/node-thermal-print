@@ -7,13 +7,20 @@
 // ============================================
 app.post('/forkitchenpr1', async (req, res) => {
   try {
-    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone } = req.body;
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone, isUpdate, previousItems, newItems } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'No items provided for Printer 1' });
     }
 
-    console.log(`[PRINTER 1] Printing ${items.length} items to Serial Printer (COM7)`);
+    const hasPreviousItems = isUpdate && previousItems && Array.isArray(previousItems) && previousItems.length > 0;
+    const hasNewItems = isUpdate && newItems && Array.isArray(newItems) && newItems.length > 0;
+
+    if (isUpdate) {
+      console.log(`[PRINTER 1] Printing order update - ${previousItems?.length || 0} previous items, ${newItems?.length || 0} new items`);
+    } else {
+      console.log(`[PRINTER 1] Printing ${items.length} items to Serial Printer (COM7)`);
+    }
 
     const printer = new ThermalPrinter({
       type: PrinterTypes.EPSON,
@@ -57,25 +64,104 @@ app.post('/forkitchenpr1', async (req, res) => {
     printer.leftRight('Table #', tableNum);
     printer.leftRight('Date', orderDate);
     printer.leftRight('Time', orderTime);
+    
+    // Show update indicator if this is an order update
+    if (isUpdate) {
+      printer.println('');
+      printer.alignCenter();
+      printer.bold(true);
+      printer.println('*** ORDER UPDATE ***');
+      printer.bold(false);
+      printer.alignLeft();
+    }
+    
     printer.println('');
     printer.drawLine('-');
     printer.println('');
 
-    // Items List
-    items.forEach((item) => {
-      const quantity = item.quantity || 1;
-      const itemName = item.menu_item_name || 'Item';
-      const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
-      const itemLine = `X${quantity} - ${itemName}${portionSize}`;
-      printer.println(itemLine);
-
-      // Customization notes
-      if (item.customization_notes) {
-        printer.alignLeft();
-        printer.println(`     *${item.customization_notes}`);
-      }
+    // Previous Items (if this is an update)
+    if (hasPreviousItems) {
+      printer.alignLeft();
+      printer.println('PREVIOUS ITEMS:');
       printer.println('');
-    });
+      
+      previousItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+      
+      printer.drawLine('-');
+      printer.println('');
+    }
+
+    // New/Replaced Items
+    if (hasNewItems) {
+      printer.alignLeft();
+      printer.bold(true);
+      printer.println('NEW/REPLACED ITEMS:');
+      printer.bold(false);
+      printer.println('');
+      
+      // Check if this is a replacement (single new item typically indicates replacement)
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      
+      newItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        
+        // Invert text for replaced items to make them stand out
+        if (isReplacement) {
+          printer.invert(true);
+          printer.println(itemLine);
+          printer.invert(false);
+          
+          // Customization notes for replaced item (also inverted)
+          if (item.customization_notes) {
+            printer.invert(true);
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+            printer.invert(false);
+          }
+        } else {
+          printer.println(itemLine);
+          
+          // Customization notes
+          if (item.customization_notes) {
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+          }
+        }
+        printer.println('');
+      });
+    } else {
+      // Regular items list (for new orders)
+      items.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+    }
 
     printer.drawLine('-');
     printer.println('');
@@ -107,13 +193,20 @@ app.post('/forkitchenpr1', async (req, res) => {
 // ============================================
 app.post('/forkitchenpr2', async (req, res) => {
   try {
-    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone } = req.body;
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone, isUpdate, previousItems, newItems } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'No items provided for Printer 2' });
     }
 
-    console.log(`[PRINTER 2] Printing ${items.length} items to Network Printer 1 (192.168.0.1)`);
+    const hasPreviousItems = isUpdate && previousItems && Array.isArray(previousItems) && previousItems.length > 0;
+    const hasNewItems = isUpdate && newItems && Array.isArray(newItems) && newItems.length > 0;
+
+    if (isUpdate) {
+      console.log(`[PRINTER 2] Printing order update - ${previousItems?.length || 0} previous items, ${newItems?.length || 0} new items`);
+    } else {
+      console.log(`[PRINTER 2] Printing ${items.length} items to Network Printer 1 (192.168.0.1)`);
+    }
 
     const printer = new ThermalPrinter({
       type: PrinterTypes.EPSON,
@@ -168,25 +261,104 @@ app.post('/forkitchenpr2', async (req, res) => {
     printer.leftRight('Table #', tableNum);
     printer.leftRight('Date', orderDate);
     printer.leftRight('Time', orderTime);
+    
+    // Show update indicator if this is an order update
+    if (isUpdate) {
+      printer.println('');
+      printer.alignCenter();
+      printer.bold(true);
+      printer.println('*** ORDER UPDATE ***');
+      printer.bold(false);
+      printer.alignLeft();
+    }
+    
     printer.println('');
     printer.drawLine('-');
     printer.println('');
 
-    // Items List
-    items.forEach((item) => {
-      const quantity = item.quantity || 1;
-      const itemName = item.menu_item_name || 'Item';
-      const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
-      const itemLine = `X${quantity} - ${itemName}${portionSize}`;
-      printer.println(itemLine);
-
-      // Customization notes
-      if (item.customization_notes) {
-        printer.alignLeft();
-        printer.println(`     *${item.customization_notes}`);
-      }
+    // Previous Items (if this is an update)
+    if (hasPreviousItems) {
+      printer.alignLeft();
+      printer.println('PREVIOUS ITEMS:');
       printer.println('');
-    });
+      
+      previousItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+      
+      printer.drawLine('-');
+      printer.println('');
+    }
+
+    // New/Replaced Items
+    if (hasNewItems) {
+      printer.alignLeft();
+      printer.bold(true);
+      printer.println('NEW/REPLACED ITEMS:');
+      printer.bold(false);
+      printer.println('');
+      
+      // Check if this is a replacement (single new item typically indicates replacement)
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      
+      newItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        
+        // Invert text for replaced items to make them stand out
+        if (isReplacement) {
+          printer.invert(true);
+          printer.println(itemLine);
+          printer.invert(false);
+          
+          // Customization notes for replaced item (also inverted)
+          if (item.customization_notes) {
+            printer.invert(true);
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+            printer.invert(false);
+          }
+        } else {
+          printer.println(itemLine);
+          
+          // Customization notes
+          if (item.customization_notes) {
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+          }
+        }
+        printer.println('');
+      });
+    } else {
+      // Regular items list (for new orders)
+      items.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+    }
 
     printer.drawLine('-');
     printer.println('');
@@ -217,13 +389,20 @@ app.post('/forkitchenpr2', async (req, res) => {
 // ============================================
 app.post('/forkitchenpr3', async (req, res) => {
   try {
-    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone } = req.body;
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone, isUpdate, previousItems, newItems } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'No items provided for Printer 3' });
     }
 
-    console.log(`[PRINTER 3] Printing ${items.length} items to Network Printer 2 (192.168.0.199)`);
+    const hasPreviousItems = isUpdate && previousItems && Array.isArray(previousItems) && previousItems.length > 0;
+    const hasNewItems = isUpdate && newItems && Array.isArray(newItems) && newItems.length > 0;
+
+    if (isUpdate) {
+      console.log(`[PRINTER 3] Printing order update - ${previousItems?.length || 0} previous items, ${newItems?.length || 0} new items`);
+    } else {
+      console.log(`[PRINTER 3] Printing ${items.length} items to Network Printer 2 (192.168.0.199)`);
+    }
 
     const printer = new ThermalPrinter({
       type: PrinterTypes.EPSON,
@@ -278,25 +457,104 @@ app.post('/forkitchenpr3', async (req, res) => {
     printer.leftRight('Table #', tableNum);
     printer.leftRight('Date', orderDate);
     printer.leftRight('Time', orderTime);
+    
+    // Show update indicator if this is an order update
+    if (isUpdate) {
+      printer.println('');
+      printer.alignCenter();
+      printer.bold(true);
+      printer.println('*** ORDER UPDATE ***');
+      printer.bold(false);
+      printer.alignLeft();
+    }
+    
     printer.println('');
     printer.drawLine('-');
     printer.println('');
 
-    // Items List
-    items.forEach((item) => {
-      const quantity = item.quantity || 1;
-      const itemName = item.menu_item_name || 'Item';
-      const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
-      const itemLine = `X${quantity} - ${itemName}${portionSize}`;
-      printer.println(itemLine);
-
-      // Customization notes
-      if (item.customization_notes) {
-        printer.alignLeft();
-        printer.println(`     *${item.customization_notes}`);
-      }
+    // Previous Items (if this is an update)
+    if (hasPreviousItems) {
+      printer.alignLeft();
+      printer.println('PREVIOUS ITEMS:');
       printer.println('');
-    });
+      
+      previousItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+      
+      printer.drawLine('-');
+      printer.println('');
+    }
+
+    // New/Replaced Items
+    if (hasNewItems) {
+      printer.alignLeft();
+      printer.bold(true);
+      printer.println('NEW/REPLACED ITEMS:');
+      printer.bold(false);
+      printer.println('');
+      
+      // Check if this is a replacement (single new item typically indicates replacement)
+      const isReplacement = newItems.length === 1 && hasPreviousItems;
+      
+      newItems.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        
+        // Invert text for replaced items to make them stand out
+        if (isReplacement) {
+          printer.invert(true);
+          printer.println(itemLine);
+          printer.invert(false);
+          
+          // Customization notes for replaced item (also inverted)
+          if (item.customization_notes) {
+            printer.invert(true);
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+            printer.invert(false);
+          }
+        } else {
+          printer.println(itemLine);
+          
+          // Customization notes
+          if (item.customization_notes) {
+            printer.alignLeft();
+            printer.println(`     *${item.customization_notes}`);
+          }
+        }
+        printer.println('');
+      });
+    } else {
+      // Regular items list (for new orders)
+      items.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        printer.println(itemLine);
+
+        // Customization notes
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+        printer.println('');
+      });
+    }
 
     printer.drawLine('-');
     printer.println('');
