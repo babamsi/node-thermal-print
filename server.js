@@ -152,6 +152,8 @@ app.post('/printday', async (req, res) => {
     let dineInTotal = 0;
     let takeawayTotal = 0;
     let homeDeliveryTotal = 0;
+    let glovoTotal = 0;
+    let boltTotal = 0;
     const orderTypeCounts = {};
 
     // Process all orders
@@ -205,6 +207,12 @@ app.post('/printday', async (req, res) => {
       } else if (orderType === 'home_delivery' || orderType === 'home-delivery') {
         homeDeliveryTotal += orderTotal;
         orderTypeCounts['home_delivery'] = (orderTypeCounts['home_delivery'] || 0) + 1;
+      } else if (orderType === 'glovo') {
+        glovoTotal += orderTotal;
+        orderTypeCounts['glovo'] = (orderTypeCounts['glovo'] || 0) + 1;
+      } else if (orderType === 'bolt') {
+        boltTotal += orderTotal;
+        orderTypeCounts['bolt'] = (orderTypeCounts['bolt'] || 0) + 1;
       }
     });
 
@@ -327,6 +335,16 @@ app.post('/printday', async (req, res) => {
     printer.leftRight('Home Delivery Total:', `Ksh ${homeDeliveryTotal.toFixed(2)}`);
     if (orderTypeCounts['home_delivery']) {
       printer.println(`  (${orderTypeCounts['home_delivery']} orders)`);
+    }
+
+	printer.leftRight('Glovo Total:', `Ksh ${glovoTotal.toFixed(2)}`);
+    if (orderTypeCounts['glovo']) {
+      printer.println(`  (${orderTypeCounts['glovo']} orders)`);
+    }
+
+    printer.leftRight('Bolt Total:', `Ksh ${boltTotal.toFixed(2)}`);
+    if (orderTypeCounts['bolt']) {
+      printer.println(`  (${orderTypeCounts['bolt']} orders)`);
     }
 
     printer.println('');
