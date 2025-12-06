@@ -589,129 +589,150 @@ app.post('/forkitchen', async (req, res) => {
   try {
     const { order, items, totals, restaurant, table, date, time, receiptId, address, phone } = req.body;
 
-    // Create printer commands
-    const printer = new ThermalPrinter({
-      type: PrinterTypes.EPSON,
-      interface: PRINTER_INTERFACE,
-      options: { timeout: 30000 },
-      width: 48,
-      characterSet: CharacterSet.SLOVENIA
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'No items provided' });
+    }
+
+    // Define category to printer mapping
+    const SERIAL_PRINTER_CATEGORIES = ['Juices', 'Milkshakes', 'Smoothies', 'Treat Cups', 'Boba Mojitos'];
+    const NETWORK_PRINTER_1_CATEGORIES = ['Cold Coffee', 'Gelato'];
+    const SERIAL_PRINTER_INTERFACE = PRINTER_INTERFACE; // COM7
+    const NETWORK_PRINTER_1_INTERFACE = 'tcp://192.168.0.1';
+    const NETWORK_PRINTER_2_INTERFACE = 'tcp://192.168.0.199';
+
+    // Group items by category
+    const serialPrinterItems = [];
+    const networkPrinter1Items = [];
+    const networkPrinter2Items = [];
+
+    items.forEach((item) => {
+      const category = item.category || 'Uncategorized';
+      
+      if (SERIAL_PRINTER_CATEGORIES.includes(category)) {
+        serialPrinterItems.push(item);
+      } else if (NETWORK_PRINTER_1_CATEGORIES.includes(category)) {
+        networkPrinter1Items.push(item);
+      } else {
+        networkPrinter2Items.push(item);
+      }
     });
 
-    // ============================================
-    // PARKLANDS BRANCH STYLE RECEIPT
-    // ============================================
+    // Helper function to print to a specific printer
+    const printToPrinter = async (itemsToPrint, printerInterface) => {
+      if (itemsToPrint.length === 0) return;
 
+      const isNetworkPrinter = printerInterface.startsWith('tcp://');
+      
+      const printer = new ThermalPrinter({
+        type: PrinterTypes.EPSON,
+        interface: printerInterface,
+        options: { timeout: 30000 },
+        width: 48,
+        characterSet: CharacterSet.SLOVENIA
+      });
 
+      // Header
+      printer.setTextSize(0, 0);
+      printer.println('');
 
-    // LOGO - Large bold text
-    
-    printer.setTextSize(0, 0);
+      // Branch name
+      printer.alignCenter();
+      const branchName = 'South C Branch';
+      const branchLine = `-------- ${branchName} --------`;
+      printer.println(branchLine);
+      printer.println('');
 
-    printer.println('');
+      // Order #, Table, Date, Time
+      printer.alignLeft();
+      const fullOrderId = receiptId || (order?.id || 'N/A');
+      const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
+      printer.leftRight('Order #', orderNum);
 
-    // Branch name in dashed box
-    printer.alignCenter();
-    const branchName = 'South C Branch';
-    const branchLine = `-------- ${branchName} --------`;
-    printer.println(branchLine);
-    printer.println('');
-    // Address and Phone in box
-    printer.alignLeft();
-    const addressText = 'Muhoho Ave - Nairobi';
-    const phoneText = '0723555569';
-    
-    // Format address line
-    //printer.leftRight('Address', addressText);
-    //printer.leftRight('Phone', phoneText);
-    
-    // Close box
+      const tableNum = table || order?.table_number || 'N/A';
+      const orderDate = date || new Date().toLocaleDateString('en-US', { 
+        weekday: 'short', 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric' 
+      });
+      const orderTime = time || new Date().toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit', 
+        second: '2-digit', 
+        hour12: true 
+      });
 
+      printer.leftRight('Table #', tableNum);
+      printer.leftRight('Date', orderDate);
+      printer.leftRight('Time', orderTime);
+      printer.println('');
+      printer.drawLine('-');
+      printer.println('');
 
-    // Order # - Right aligned with shortened ID
-    const fullOrderId = receiptId || (order?.id || 'N/A');
-    const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
-    printer.alignLeft();
-    printer.leftRight('Order #', orderNum);
-   
-
-
-    // Table, Date, Time
-    const tableNum = table || order?.table_number || 'N/A';
-    const orderDate = date || new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-    const orderTime = time || new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-
-    printer.leftRight('Table #', tableNum);
-    printer.leftRight('Date', orderDate);
-    printer.leftRight('Time', orderTime);
-    printer.println('');
-    printer.drawLine('-');
-    printer.println('');
-
-    // Items List
-    if (items && items.length > 0) {
-      items.forEach((item) => {
+      // Items List
+      itemsToPrint.forEach((item) => {
         const quantity = item.quantity || 1;
         const itemName = item.menu_item_name || 'Item';
         const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
-        const unitPrice = item.unit_price || 0;
-        const itemTotal = item.total_price || (unitPrice * quantity);
-
-        // Format: X2 - Item Name
         const itemLine = `X${quantity} - ${itemName}${portionSize}`;
-        // printer.leftRight(itemLine, itemTotal.toFixed(2));
-        printer.println(itemLine)
-        // Customization notes indented with italic style
+        printer.println(itemLine);
+
+        // Customization notes
         if (item.customization_notes) {
           printer.alignLeft();
           printer.println(`     *${item.customization_notes}`);
         }
-
         printer.println('');
       });
 
       printer.drawLine('-');
       printer.println('');
+
+      // Cut and beep
+      printer.cut();
+      printer.beep();
+
+      // Print based on printer type
+      if (isNetworkPrinter) {
+        // For network printers, use the printer.execute() method directly
+        await printer.execute();
+      } else {
+        // For serial port, get buffer and use force print
+        const buffer = printer.getBuffer();
+        await forcePrint(buffer);
+      }
+    };
+
+    // Print to each printer as needed
+    const printPromises = [];
+
+    if (serialPrinterItems.length > 0) {
+      console.log(`Printing ${serialPrinterItems.length} items to serial printer (COM7)`);
+      printPromises.push(printToPrinter(serialPrinterItems, SERIAL_PRINTER_INTERFACE));
     }
 
-    // Totals Section
-    printer.alignLeft();
-    printer.setTextSize(0, 0);
+    if (networkPrinter1Items.length > 0) {
+      console.log(`Printing ${networkPrinter1Items.length} items to network printer 1 (192.168.0.1)`);
+      printPromises.push(printToPrinter(networkPrinter1Items, NETWORK_PRINTER_1_INTERFACE));
+    }
 
-         // THANK YOU Section
-    //printer.alignCenter();
-    //printer.bold(true);
-    //printer.setTextSize(1, 1);
-    //printer.println('THANK YOU!');
-    //printer.bold(false);
-    //printer.setTextSize(0, 0);
-    //printer.println('Enjoy your Orange Dessert');
-    //printer.println('');
-    //printer.println('');
-    //printer.println('');
+    if (networkPrinter2Items.length > 0) {
+      console.log(`Printing ${networkPrinter2Items.length} items to network printer 2 (192.168.0.199)`);
+      printPromises.push(printToPrinter(networkPrinter2Items, NETWORK_PRINTER_2_INTERFACE));
+    }
 
-    // Powered by MAAMUL
-    //printer.alignCenter();
-    //printer.println('- POWERED BY MAAMUL -');
+    // Wait for all prints to complete
+    await Promise.all(printPromises);
 
-    //printer.setTextSize(0,0)
-    //printer.println('maamul.com')
-
-
-    // Cut and beep
-    printer.cut();
-    printer.beep();
-
-    // Get buffer and print
-    const buffer = printer.getBuffer();
-    await forcePrint(buffer);
-    
-    res.json({ success: true, message: 'Receipt printed successfully' });
+    res.json({ success: true, message: 'Kitchen tickets printed successfully to multiple printers' });
   } catch (error) {
-    res.status(500).json({ success: false, error: `FORCE PRINT FAILED: ${error.message || error}` });
+    console.error('Print kitchen ticket error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: `PRINT FAILED: ${error.message || error}` 
+    });
   }
 });
-
 
 // Test print endpoint (GUARANTEED to work)
 app.get('/force-test', async (req, res) => {
