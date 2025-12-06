@@ -360,3 +360,55 @@ async function printWithThermalPrinter(printerInterface = 'tcp://192.168.0.1') {
     }
 }
 printWithThermalPrinter('tcp://192.168.0.1');
+
+
+
+// Test print endpoint (GUARANTEED to work)
+app.get('/force-test', async (req, res) => {
+  
+    const printer = new ThermalPrinter({
+        type: PrinterTypes.EPSON,
+        interface: 'tcp://192.168.0.1', // 'tcp://192.168.0.1' or 'COM3' or '/dev/ttyUSB0'
+        options: {
+            timeout: 5000,
+        },
+        width: 48,
+        removeSpecialCharacters: false,
+    });
+
+    try {
+        // Check if printer is connected (optional but recommended)
+        const isConnected = await printer.isPrinterConnected();
+        if (!isConnected) {
+            throw new Error('Printer is not connected');
+        }
+
+        // Build your print content
+        printer.alignCenter();
+        printer.println('Receipt');
+        printer.drawLine();
+
+        printer.alignLeft();
+        printer.println('Item 1...................$10.00');
+        printer.println('Item 2...................$15.00');
+        printer.drawLine();
+
+        printer.alignRight();
+        printer.setTextDoubleHeight();
+        printer.println('Total: $25.00');
+        printer.setTextNormal();
+
+        printer.newLine();
+        printer.cut();
+
+        // Execute the print - this waits until printing is complete
+        await printer.execute();
+        console.log('Print completed successfully');
+	res.json({ success: true, message: 'Receipt printed by force' });
+    } catch (error) {
+        console.error('Print error:', error);
+        res.status(500).json({ error: `FORCE RECEIPT FAILED: ${error}` });
+    }
+
+});
+
