@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // FORCE printer to work with Express
-const PRINTER_INTERFACE = 'COM01'; // Use EXACTLY this format for Windows
+const PRINTER_INTERFACE = 'COM7'; // Use EXACTLY this format for Windows
 const PRINTER_BAUD_RATE = 9600; // Verify this matches your printer's spec
 
 // Nuclear option: Direct serial port control
@@ -83,8 +83,48 @@ function parsePaymentMethod(paymentMethod) {
 }
 
 
-app.post('/printday', async (req, res) => {
+function parsePaymentMethod(paymentMethod) {
+  let cash = 0;
+  let mpesa = 0;
+  let card = 0;
+  let isSplit = false;
 
+  if (!paymentMethod) {
+    return { cash, mpesa, card, isSplit };
+  }
+
+  // If it's a string, try to parse it
+  if (typeof paymentMethod === 'string') {
+    if (paymentMethod.startsWith('{')) {
+      try {
+        paymentMethod = JSON.parse(paymentMethod);
+      } catch {
+        // If parsing fails, return empty
+        return { cash: 0, mpesa: 0, card: 0, isSplit: false };
+      }
+    } else {
+      // Simple string payment method - return empty, caller will use order total
+      return { cash: 0, mpesa: 0, card: 0, isSplit: false };
+    }
+  }
+
+  // If it's an object
+  if (typeof paymentMethod === 'object' && paymentMethod !== null) {
+    cash = Number(paymentMethod.cash) || 0;
+    mpesa = Number(paymentMethod.mpesa) || 0;
+    card = Number(paymentMethod.card) || 0;
+    
+    // Check if it's a split payment (multiple methods with amounts > 0)
+    const methodsWithAmount = [cash > 0, mpesa > 0, card > 0].filter(Boolean).length;
+    isSplit = methodsWithAmount > 1;
+  }
+
+  return { cash, mpesa, card, isSplit };
+}
+
+
+// Updated printday server code with glovo and bolt separation
+app.post('/printday', async (req, res) => {
   try {
     const { orders, dateRange, totals, restaurant, address, phone } = req.body;
 
@@ -92,10 +132,21 @@ app.post('/printday', async (req, res) => {
       return res.status(400).json({ success: false, error: 'No orders provided' });
     }
 
+    // Create printer commands
+    const printer = new ThermalPrinter({
+      type: PrinterTypes.EPSON,
+      interface: PRINTER_INTERFACE,
+      options: { timeout: 30000 },
+      width: 48,
+      characterSet: CharacterSet.SLOVENIA
+    });
+
     // Calculate payment method totals
     let totalCash = 0;
     let totalMpesa = 0;
     let totalCard = 0;
+    let totalGlovo = 0;
+    let totalBolt = 0;
 
     // Calculate order type totals
     let dineInTotal = 0;
@@ -108,7 +159,18 @@ app.post('/printday', async (req, res) => {
       const orderTotal = order.total_amount || 0;
       const paymentInfo = parsePaymentMethod(order.payment_method);
       
-      if (paymentInfo.isSplit) {
+      // Check if payment method is glovo or bolt first (these should be separate)
+      const pmStr = typeof order.payment_method === 'string' 
+        ? order.payment_method.toLowerCase() 
+        : '';
+      
+      if (pmStr === 'glovo' || order.order_type === 'glovo') {
+        // Glovo orders - separate from cash
+        totalGlovo += orderTotal;
+      } else if (pmStr === 'bolt' || order.order_type === 'bolt') {
+        // Bolt orders - separate from cash
+        totalBolt += orderTotal;
+      } else if (paymentInfo.isSplit) {
         // Split payment - use the parsed amounts directly
         totalCash += paymentInfo.cash;
         totalMpesa += paymentInfo.mpesa;
@@ -120,10 +182,6 @@ app.post('/printday', async (req, res) => {
         totalCard += paymentInfo.card;
       } else {
         // Single payment method stored as string - infer from string
-        const pmStr = typeof order.payment_method === 'string' 
-          ? order.payment_method.toLowerCase() 
-          : '';
-        
         if (pmStr.includes('cash') || pmStr === 'cash') {
           totalCash += orderTotal;
         } else if (pmStr.includes('mpesa') || pmStr === 'mpesa') {
@@ -131,7 +189,7 @@ app.post('/printday', async (req, res) => {
         } else if (pmStr.includes('card') || pmStr === 'card') {
           totalCard += orderTotal;
         } else {
-          // Default to cash if unknown
+          // Default to cash if unknown (but not glovo/bolt)
           totalCash += orderTotal;
         }
       }
@@ -150,18 +208,6 @@ app.post('/printday', async (req, res) => {
       }
     });
 
-    // Create printer
-    const printer = new ThermalPrinter({
-      type: PrinterTypes.EPSON,
-      interface: PRINTER_INTERFACE,
-      options: { timeout: 30000 },
-      width: 48,
-      characterSet: CharacterSet.SLOVENIA,
-      breakLine: BreakLine.WORD,
-      removeSpecialCharacters: false,
-      lineCharacter: '-',
-    });
-
     // ============================================
     // MODERN RECEIPT DESIGN
     // ============================================
@@ -171,9 +217,9 @@ app.post('/printday', async (req, res) => {
 
     // Restaurant Header - Small, slightly bold
     printer.alignCenter();
-    printer.setTextSize(1, 1);
+    printer.setTextSize(0, 0);
     printer.bold(true);
-    printer.println(restaurant || 'RESTAURANT NAME');
+    printer.println('Orange Desserts');
     printer.bold(false);
     printer.println('');
 
@@ -181,12 +227,12 @@ app.post('/printday', async (req, res) => {
     if (address) {
       printer.println(address);
     } else {
-      printer.println('123 Main Street, City');
+      printer.println('South C Branch');
     }
     if (phone) {
       printer.println(`Tel: ${phone}`);
     } else {
-      printer.println('Phone: (123) 456-7890');
+      printer.println('Phone: 0723555569');
     }
     printer.println('');
 
@@ -196,7 +242,7 @@ app.post('/printday', async (req, res) => {
 
     // Report Information Section
     printer.alignLeft();
-    printer.setTextSize(1, 1);
+    printer.setTextSize(0, 0);
     printer.println('DAY SALES REPORT');
     printer.println('');
 
@@ -247,6 +293,12 @@ app.post('/printday', async (req, res) => {
     if (totalCard > 0) {
       printer.leftRight('Card Total:', `Ksh ${totalCard.toFixed(2)}`);
     }
+    if (totalGlovo > 0) {
+      printer.leftRight('Glovo Total:', `Ksh ${totalGlovo.toFixed(2)}`);
+    }
+    if (totalBolt > 0) {
+      printer.leftRight('Bolt Total:', `Ksh ${totalBolt.toFixed(2)}`);
+    }
 
     printer.println('');
     printer.drawLine();
@@ -281,72 +333,7 @@ app.post('/printday', async (req, res) => {
     printer.drawLine();
     printer.println('');
 
-    // ============================================
-    // ALL ITEMS DETAIL
-    // ============================================
-    printer.alignCenter();
-    printer.bold(true);
-    printer.println('ALL ITEMS SOLD');
-    printer.bold(false);
-    printer.alignLeft();
-    printer.println('');
-
-    // Collect all items with quantities
-    const itemMap = {};
-
-    orders.forEach((order) => {
-      if (order.items && Array.isArray(order.items)) {
-        order.items.forEach((item) => {
-          const itemKey = `${item.menu_item_name || item.name}_${item.portion_size || ''}`;
-          if (!itemMap[itemKey]) {
-            itemMap[itemKey] = {
-              name: item.menu_item_name || item.name,
-              quantity: 0,
-              totalPrice: 0,
-              portionSize: item.portion_size,
-            };
-          }
-          itemMap[itemKey].quantity += item.quantity || 1;
-          itemMap[itemKey].totalPrice += item.total_price || (item.unit_price || 0) * (item.quantity || 1);
-        });
-      }
-    });
-
-    // Print items in table format
-    if (Object.keys(itemMap).length > 0) {
-      // Items Table Header
-      printer.tableCustom([
-        { text: 'Item', align: 'LEFT', width: 0.5 },
-        { text: 'Qty', align: 'CENTER', width: 0.15 },
-        { text: 'Total', align: 'RIGHT', width: 0.35 }
-      ]);
-      printer.drawLine();
-      printer.println('');
-
-      // Sort items by total price (descending)
-      const sortedItems = Object.values(itemMap).sort((a, b) => b.totalPrice - a.totalPrice);
-
-      sortedItems.forEach((item) => {
-        const itemName = `${item.name}${item.portionSize ? ` (${item.portionSize})` : ''}`;
-        
-        // Item name (can wrap)
-        printer.alignLeft();
-        printer.println(itemName);
-
-        // Price details
-        printer.tableCustom([
-          { text: '', align: 'LEFT', width: 0.5 },
-          { text: `x${item.quantity}`, align: 'CENTER', width: 0.15 },
-          { text: `Ksh ${item.totalPrice.toFixed(2)}`, align: 'RIGHT', width: 0.35 }
-        ]);
-
-        printer.println('');
-      });
-
-      printer.drawLine();
-      printer.println('');
-    }
-
+    
     // ============================================
     // FOOTER SECTION
     // ============================================
@@ -381,20 +368,17 @@ app.post('/printday', async (req, res) => {
       error: `PRINT FAILED: ${error.message || error}` 
     });
   }
-  
 })
 
 app.get('/', (req,res) => {
   res.send("its working...")
 })
 
-
-
 app.post('/print-receipt', async (req, res) => {
   try {
-    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone } = req.body;
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone, homeDelivery } = req.body;
 
-    // 1. Create printer commands (same config as /force-test)
+    // Create printer commands
     const printer = new ThermalPrinter({
       type: PrinterTypes.EPSON,
       interface: PRINTER_INTERFACE,
@@ -404,53 +388,53 @@ app.post('/print-receipt', async (req, res) => {
     });
 
     // ============================================
-    // MODERN RECEIPT DESIGN
+    // PARKLANDS BRANCH STYLE RECEIPT
     // ============================================
 
-    // Top spacing
-    printer.println('');
 
-    // Restaurant Header - Small, slightly bold
+
+    // LOGO - Large bold text
     printer.alignCenter();
-    printer.setTextSize(1, 1);
-    printer.bold(true);
-    printer.println(restaurant || 'RESTAURANT NAME');
+     await printer.printImage('./oranges.png');
     printer.bold(false);
+    printer.setTextSize(0, 0);
+
     printer.println('');
 
-    // Address & Contact - Small text
-    if (address) {
-      printer.println(address);
-    } else {
-      printer.println('123 Main Street, City');
-    }
-    if (phone) {
-      printer.println(`Tel: ${phone}`);
-    } else {
-      printer.println('Phone: (123) 456-7890');
-    }
+    // Branch name in dashed box
+    printer.alignCenter();
+    const branchName = 'South C Branch';
+    const branchLine = `-------- ${branchName} --------`;
+    printer.println(branchLine);
     printer.println('');
-
-    // Decorative line
-    printer.drawLine();
-    printer.println('');
-
-    // Order Information Section - Clean Layout
+    // Address and Phone in box
     printer.alignLeft();
-    printer.setTextSize(1, 1);
-    printer.println('ORDER DETAILS');
-    printer.println('');
+    const addressText = 'Muhoho Ave - Nairobi';
+    const phoneText = '0723555569';
+    
+    // Format address line
+    printer.leftRight('Address', addressText);
+    printer.leftRight('Phone', phoneText);
+    
+    // Close box
 
-    // Order info in two columns - Short order ID
-    const orderNum = receiptId ? receiptId.slice(-6) : (order?.id ? order.id.slice(-6) : 'N/A');
+
+    // Order # - Right aligned with shortened ID
+    const fullOrderId = receiptId || (order?.id || 'N/A');
+    const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
+    printer.alignLeft();
+    printer.leftRight('Order #', orderNum);
+   
+
+
+    // Table, Date, Time
     const tableNum =  table === 'Take Away' ? (order?.order_type || 'Take Away') : (table || order?.table_number || 'N/A');
-    const orderDate = date || new Date().toLocaleDateString();
-    const orderTime = time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const orderDate = date || new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    const orderTime = time || new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
 
-    printer.leftRight('Order #:', orderNum);
-    printer.leftRight('Table:', tableNum);
+    printer.leftRight('Table #', tableNum);
 
-// Add home delivery details if available
+    // Add home delivery details if available
 if (req.body.homeDelivery) {
   const { address: deliveryAddress, name: deliveryName, phone: deliveryPhone } = req.body.homeDelivery;
   
@@ -464,234 +448,318 @@ if (req.body.homeDelivery) {
     printer.leftRight('Phone:', deliveryPhone);
   }
 }
-    
-    printer.leftRight('Date:', orderDate);
-    printer.leftRight('Time:', orderTime);
-    
+
+
+    printer.leftRight('Date', orderDate);
+    printer.leftRight('Time', orderTime);
+    printer.leftRight('Status', order.status); 
     printer.println('');
-    printer.drawLine();
+    printer.drawLine('-');
     printer.println('');
 
-    // Items Section - Modern Table Format
+    // Items List
     if (items && items.length > 0) {
-      printer.println('ITEMS');
-      printer.println('');
-
-      // Items Table Header
-      printer.tableCustom([
-        { text: 'Item', align: 'LEFT', width: 0.5 },
-        { text: 'Qty', align: 'CENTER', width: 0.15 },
-        { text: 'Total', align: 'RIGHT', width: 0.35 }
-      ]);
-
-      printer.drawLine();
-      printer.println('');
-
-      // Items List
       items.forEach((item) => {
-        const itemName = `${item.menu_item_name}${item.portion_size ? ` (${item.portion_size})` : ''}`;
         const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
         const unitPrice = item.unit_price || 0;
         const itemTotal = item.total_price || (unitPrice * quantity);
 
-        // Item name (can wrap)
-        printer.alignLeft();
-        printer.println(itemName);
-
-        if (order?.order_type === "bolt" || order?.order_type === "glovo") {
-
+        // Format: X2 - Item Name
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+       if (order?.order_type === "bolt" || order?.order_type === "glovo") {
+          printer.println(itemLine)	
+        } else {
+          printer.leftRight(itemLine, itemTotal.toFixed(2));
+	  	
         }
 
-        // Customization notes if any
+        
+
+        // Customization notes indented with italic style
         if (item.customization_notes) {
-          printer.println(`  └ ${item.customization_notes}`);
-        }
-
-        // Price details
-        printer.tableCustom([
-          { text: '', align: 'LEFT', width: 0.5 },
-          { text: `x${quantity}`, align: 'CENTER', width: 0.15 },
-          { text: `Ksh ${itemTotal.toFixed(2)}`, align: 'RIGHT', width: 0.35 }
-        ]);
-
-        // Show unit price if different from total
-        if (quantity > 1) {
-          printer.tableCustom([
-            { text: `  @ Ksh ${unitPrice.toFixed(2)}`, align: 'LEFT', width: 0.5 },
-            { text: '', align: 'CENTER', width: 0.15 },
-            { text: '', align: 'RIGHT', width: 0.35 }
-          ]);
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
         }
 
         printer.println('');
       });
 
-      printer.drawLine();
+      printer.drawLine('-');
       printer.println('');
     }
 
-    // Totals Section - Prominent & Clear
-    printer.alignRight();
-    printer.println('');
+    // Totals Section
+    printer.alignLeft();
+    printer.setTextSize(0, 0);
 
-    if (totals?.subtotal) {
-      printer.println(`Subtotal:     Ksh ${totals.subtotal.toFixed(2)}`);
-    }
-    if (totals?.tax) {
-      printer.println(`Tax (16%):    Ksh ${totals.tax.toFixed(2)}`);
-    }
-    if (totals?.discount && totals.discount > 0) {
-      printer.println(`Discount:     Ksh ${totals.discount.toFixed(2)}`);
-    }
+     // Calculate breakdown
+    let subtotalBeforeTax = 0;
+    let vat = 0;
+    let levy = 0;
+    let finalTotal = 0;
 
-    printer.drawLine();
-    
     if (totals?.total) {
-      printer.println(`TOTAL:        Ksh ${totals.total.toFixed(2)}`);
+      // Total includes 18% (16% VAT + 2% Levy)
+      // So if total = X, then subtotal before tax = X / 1.18
+      finalTotal = totals.total;
+      subtotalBeforeTax = finalTotal / 1.18;
+      vat = subtotalBeforeTax * 0.16; // 16% VAT
+      levy = subtotalBeforeTax * 0.02; // 2% Levy
     }
+    // Display subtotal before tax
+    const subtotalLabel = 'Subtotal (before Tax)';
+    const subtotalValue = `KSH ${subtotalBeforeTax.toFixed(2)}`;
+    printer.leftRight(subtotalLabel, subtotalValue);
 
-    printer.drawLine();
+    // Display VAT 16%
+    const vatLabel = 'VAT (16%)';
+    const vatValue = `KSH ${vat.toFixed(2)}`;
+    printer.leftRight(vatLabel, vatValue);
+
+    // Display Levy 2%
+    const levyLabel = 'Levy (2%)';
+    const levyValue = `KSH ${levy.toFixed(2)}`;
+    printer.leftRight(levyLabel, levyValue);
+
+    if (totals?.discount && totals.discount > 0) {
+      const discountLabel = 'Discount';
+      const discountValue = `KSH ${totals.discount.toFixed(2)}`;
+      printer.bold();
+      printer.leftRight(discountLabel, discountValue);
+      printer.bold(false);
+    }
+ printer.println('');
+
+    // Display Total (bold)
+    const totalLabel = 'Total';
+    const totalValue = `KSH ${finalTotal.toFixed(2)}`;
+    printer.bold(true);
+    printer.leftRight(totalLabel, totalValue);
+    printer.bold(false);
+
     printer.println('');
 
-    // Payment Method (if provided)
-    if (req.body.paymentMethod) {
-      printer.alignLeft();
-      printer.println(`Payment: ${req.body.paymentMethod}`);
-      if (req.body.paymentMethod === 'Cash' && req.body.cashReceived) {
-        printer.println(`Received: Ksh ${req.body.cashReceived.toFixed(2)}`);
-        if (req.body.change) {
-          printer.println(`Change:  Ksh ${req.body.change.toFixed(2)}`);
-        }
-      }
-      printer.println('');
-    }
 
-    // Footer Section - Modern & Professional
+    printer.bold(true);
     printer.alignCenter();
-    printer.println('');
-    printer.drawLine();
-    printer.println('');
-    printer.println('Thank you for dining with us!');
-    printer.println('');
-    printer.println('We appreciate your business');
+	
+    printer.println('Till Number: 4983042');
+    printer.bold(false);
+
     printer.println('');
 
-    // QR Code for receipt verification (if receiptId provided)
-    if (receiptId || order?.id) {
-      printer.println('');
-      printer.printQR(receiptId || order.id);
-      printer.println('');
-      const shortReceiptId = receiptId ? receiptId.slice(-6) : (order?.id ? order.id.slice(-6) : '');
-      printer.println(`Receipt ID: ${shortReceiptId}`);
-      printer.println('');
-    }
 
-    // Bottom spacing
+    // THANK YOU Section
+    printer.alignCenter();
+    printer.bold(true);
+    printer.setTextSize(1, 1);
+    printer.println('THANK YOU!');
+    printer.bold(false);
+    printer.setTextSize(0, 0);
+    printer.println('Enjoy your Orange Dessert');
     printer.println('');
     printer.println('');
+    printer.println('');
+
+    // Powered by MAAMUL
+    printer.alignCenter();
+    printer.println('- POWERED BY MAAMUL -');
+
+    printer.setTextSize(0,0)
+    printer.println('maamul.com')
+
 
     // Cut and beep
     printer.cut();
     printer.beep();
 
-    // 2. Get raw buffer
+    // Get buffer and print
     const buffer = printer.getBuffer();
-    
-    // 3. Physically force the data to printer
     await forcePrint(buffer);
     
-    res.json({ success: true, message: 'Modern receipt printed successfully' });
+    res.json({ success: true, message: 'Receipt printed successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: `FORCE PRINT FAILED: ${error.message || error}` });
   }
 });
 
-// Test print endpoint (GUARANTEED to work)
-app.get('/force-test', async (req, res) => {
+app.post('/forkitchen', async (req, res) => {
   try {
-    // 1. Create printer commands
+    const { order, items, totals, restaurant, table, date, time, receiptId, address, phone } = req.body;
+
+    // Create printer commands
     const printer = new ThermalPrinter({
       type: PrinterTypes.EPSON,
       interface: PRINTER_INTERFACE,
       options: { timeout: 30000 },
       width: 48,
-      characterSet: CharacterSet.PC437_USA
+      characterSet: CharacterSet.SLOVENIA
     });
 
-    // Print receipt content
+    // ============================================
+    // PARKLANDS BRANCH STYLE RECEIPT
+    // ============================================
+
+
+
+    // LOGO - Large bold text
+    
+    printer.setTextSize(0, 0);
+
+    printer.println('');
+
+    // Branch name in dashed box
     printer.alignCenter();
-    printer.setTextSize(1, 1);
-    printer.bold(true);
-    printer.println('Waraa biyo ii keen');
-    printer.bold(false);
-    printer.println('Bring some water nigga');
-    printer.println('Tel: +254 705 043 383');
-    
-    printer.drawLine();
-
-    // Header
+    const branchName = 'South C Branch';
+    const branchLine = `-------- ${branchName} --------`;
+    printer.println(branchLine);
+    printer.println('');
+    // Address and Phone in box
     printer.alignLeft();
-    printer.println(`Date: ${new Date().toLocaleString()}`);
-    printer.println(`Invoice: SAMPLE-${Date.now()}`);
-    printer.println('Cashier: Zubeir');
+    const addressText = 'Muhoho Ave - Nairobi';
+    const phoneText = '0723555569';
     
-    printer.drawLine();
-
-    // Items
-    // printer.tableCustom([
-    //   { text: 'Item', align: 'LEFT', width: 0.4 },
-    //   { text: 'Qty', align: 'RIGHT', width: 0.2 },
-    //   { text: 'Price', align: 'RIGHT', width: 0.2 },
-    //   { text: 'Total', align: 'RIGHT', width: 0.2 }
-    // ]);
-
-    // printer.tableCustom([
-    //   { text: 'Sample Item 1', align: 'LEFT', width: 0.4 },
-    //   { text: '2', align: 'RIGHT', width: 0.2 },
-    //   { text: '500', align: 'RIGHT', width: 0.2 },
-    //   { text: '1,000', align: 'RIGHT', width: 0.2 }
-    // ]);
-
-    // printer.tableCustom([
-    //   { text: 'Sample Item 2', align: 'LEFT', width: 0.4 },
-    //   { text: '1', align: 'RIGHT', width: 0.2 },
-    //   { text: '750', align: 'RIGHT', width: 0.2 },
-    //   { text: '750', align: 'RIGHT', width: 0.2 }
-    // ]);
-
-    printer.drawLine();
-
-    // Totals
-    // printer.alignRight();
-    // printer.println('Subtotal: KES 1,750.00');
-    // printer.println('Discount: KES 0.00');
-    // printer.bold(true);
-    // printer.println('Total: KES 1,750.00');
-    // printer.bold(false);
-
-    // printer.drawLine();
-
-    // Footer
-    // printer.alignCenter();
-    // printer.println('Thank you for shopping with us!');
-    // printer.println('Please come again');
-
-    // QR Code for receipt reference
-    // printer.printQR(`RECEIPT-${Date.now()}`);
+    // Format address line
+    //printer.leftRight('Address', addressText);
+    //printer.leftRight('Phone', phoneText);
     
+    // Close box
+
+
+    // Order # - Right aligned with shortened ID
+    const fullOrderId = receiptId || (order?.id || 'N/A');
+    const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
+    printer.alignLeft();
+    printer.leftRight('Order #', orderNum);
+   
+
+
+    // Table, Date, Time
+    const tableNum = table || order?.table_number || 'N/A';
+    const orderDate = date || new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    const orderTime = time || new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+
+    printer.leftRight('Table #', tableNum);
+    printer.leftRight('Date', orderDate);
+    printer.leftRight('Time', orderTime);
+    printer.println('');
+    printer.drawLine('-');
+    printer.println('');
+
+    // Items List
+    if (items && items.length > 0) {
+      items.forEach((item) => {
+        const quantity = item.quantity || 1;
+        const itemName = item.menu_item_name || 'Item';
+        const portionSize = item.portion_size ? ` - ${item.portion_size}` : '';
+        const unitPrice = item.unit_price || 0;
+        const itemTotal = item.total_price || (unitPrice * quantity);
+
+        // Format: X2 - Item Name
+        const itemLine = `X${quantity} - ${itemName}${portionSize}`;
+        // printer.leftRight(itemLine, itemTotal.toFixed(2));
+        printer.println(itemLine)
+        // Customization notes indented with italic style
+        if (item.customization_notes) {
+          printer.alignLeft();
+          printer.println(`     *${item.customization_notes}`);
+        }
+
+        printer.println('');
+      });
+
+      printer.drawLine('-');
+      printer.println('');
+    }
+
+    // Totals Section
+    printer.alignLeft();
+    printer.setTextSize(0, 0);
+
+         // THANK YOU Section
+    //printer.alignCenter();
+    //printer.bold(true);
+    //printer.setTextSize(1, 1);
+    //printer.println('THANK YOU!');
+    //printer.bold(false);
+    //printer.setTextSize(0, 0);
+    //printer.println('Enjoy your Orange Dessert');
+    //printer.println('');
+    //printer.println('');
+    //printer.println('');
+
+    // Powered by MAAMUL
+    //printer.alignCenter();
+    //printer.println('- POWERED BY MAAMUL -');
+
+    //printer.setTextSize(0,0)
+    //printer.println('maamul.com')
+
+
+    // Cut and beep
     printer.cut();
     printer.beep();
 
-    // 2. Get raw buffer
+    // Get buffer and print
     const buffer = printer.getBuffer();
-    
-    // 3. Physically force the data to printer
     await forcePrint(buffer);
     
-    res.json({ success: true, message: 'Printer was FORCED to print' });
+    res.json({ success: true, message: 'Receipt printed successfully' });
   } catch (error) {
-    res.status(500).json({ error: `FORCE PRINT FAILED: ${error}` });
+    res.status(500).json({ success: false, error: `FORCE PRINT FAILED: ${error.message || error}` });
   }
+});
+
+
+// Test print endpoint (GUARANTEED to work)
+app.get('/force-test', async (req, res) => {
+  
+    const printer = new ThermalPrinter({
+        type: PrinterTypes.EPSON,
+        interface: 'tcp://192.168.0.199', // 'tcp://192.168.0.1' or 'COM3' or '/dev/ttyUSB0'
+        options: {
+            timeout: 5000,
+        },
+        width: 48,
+        removeSpecialCharacters: false,
+    });
+
+    try {
+        // Check if printer is connected (optional but recommended)
+        const isConnected = await printer.isPrinterConnected();
+        if (!isConnected) {
+            throw new Error('Printer is not connected');
+        }
+
+        // Build your print content
+        printer.alignCenter();
+        printer.println('Receipt');
+        printer.drawLine();
+
+        printer.alignLeft();
+        printer.println('Item 1...................$10.00');
+        printer.println('Item 2...................$15.00');
+        printer.drawLine();
+
+        printer.alignRight();
+        printer.setTextDoubleHeight();
+        printer.println('Total: $25.00');
+        printer.setTextNormal();
+
+        printer.newLine();
+        printer.cut();
+
+        // Execute the print - this waits until printing is complete
+        await printer.execute();
+        console.log('Print completed successfully');
+	res.json({ success: true, message: 'Receipt printed by force' });
+    } catch (error) {
+        console.error('Print error:', error);
+        res.status(500).json({ error: `FORCE RECEIPT FAILED: ${error}` });
+    }
+
 });
 
 // Receipt printing endpoint
@@ -700,12 +768,16 @@ app.post('/force-receipt', async (req, res) => {
   
   try {
     const printer = new ThermalPrinter({
-      type: PrinterTypes.EPSON,
-      interface: PRINTER_INTERFACE,
-      options: { timeout: 30000 },
-      width: 48,
-      characterSet: CharacterSet.PC437_USA
-    });
+  type: PrinterTypes.STAR,                                  // Printer type: 'star' or 'epson'
+  interface: 'tcp://192.168.0.11',                       // Printer interface
+  characterSet: CharacterSet.PC852_LATIN2,                  // Printer character set
+  removeSpecialCharacters: false,                           // Removes special characters - default: false
+  lineCharacter: "=",                                       // Set character for lines - default: "-"
+  breakLine: BreakLine.WORD,                                // Break line after WORD or CHARACTERS. Disabled with NONE - default: WORD
+  options:{                                                 // Additional options
+    timeout: 5000                                           // Connection timeout (ms) [applicable only for network printers] - default: 3000
+  }
+});
 
     // Build receipt (same as before)
     // Header
