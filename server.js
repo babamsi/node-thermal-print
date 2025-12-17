@@ -1211,6 +1211,166 @@ app.post('/forkitchenpr3', async (req, res) => {
 
 
 
+app.post('/printitems', async (req, res) => {
+  try {
+    const { items, dateRange, restaurant, address, phone } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'No items provided' });
+    }
+
+    // Create printer commands
+    const printer = new ThermalPrinter({
+      type: PrinterTypes.EPSON,
+      interface: PRINTER_INTERFACE,
+      options: { timeout: 30000 },
+      width: 48,
+      characterSet: CharacterSet.SLOVENIA
+    });
+
+    // Calculate totals
+    const totalQuantity = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+    const totalRevenue = items.reduce((sum, item) => sum + (item.total_price || 0), 0);
+
+    // ============================================
+    // MODERN RECEIPT DESIGN
+    // ============================================
+
+    // Top spacing
+    printer.println('');
+
+    // Restaurant Header - Small, slightly bold
+    printer.alignCenter();
+    printer.setTextSize(0, 0);
+    printer.bold(true);
+    printer.println('Orange Desserts');
+    printer.bold(false);
+    printer.println('');
+
+    // Address & Contact - Small text
+    if (address) {
+      printer.println(address);
+    } else {
+      printer.println('South C Branch');
+    }
+    if (phone) {
+      printer.println(`Tel: ${phone}`);
+    } else {
+      printer.println('Phone: 0723555569');
+    }
+    printer.println('');
+
+    // Decorative line
+    printer.drawLine();
+    printer.println('');
+
+    // Report Information Section
+    printer.alignLeft();
+    printer.setTextSize(0, 0);
+    printer.println('ITEMS SOLD REPORT');
+    printer.println('');
+
+    // Date range info
+    printer.leftRight('From:', dateRange?.from || 'N/A');
+    printer.leftRight('To:', dateRange?.to || 'N/A');
+    printer.leftRight('Report Date:', new Date().toLocaleDateString());
+    printer.leftRight('Report Time:', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    
+    printer.println('');
+    printer.drawLine();
+    printer.println('');
+
+    // ============================================
+    // SUMMARY SECTION
+    // ============================================
+    printer.alignCenter();
+    printer.bold(true);
+    printer.println('SUMMARY');
+    printer.bold(false);
+    printer.alignLeft();
+    printer.println('');
+
+    printer.leftRight('Total Items:', `${items.length}`);
+    printer.leftRight('Total Quantity:', `${totalQuantity}`);
+    printer.leftRight('Total Revenue:', `Ksh ${totalRevenue.toFixed(2)}`);
+
+    printer.println('');
+    printer.drawLine();
+    printer.println('');
+
+    // ============================================
+    // ITEMS LIST SECTION
+    // ============================================
+    printer.alignCenter();
+    printer.bold(true);
+    printer.println('ITEMS SOLD');
+    printer.bold(false);
+    printer.alignLeft();
+    printer.println('');
+
+    // Print each item
+    items.forEach((item, index) => {
+      const itemName = item.name || 'Unknown Item';
+      const quantity = item.quantity || 0;
+      const totalPrice = item.total_price || 0;
+
+      // Item name (truncate if too long)
+      const maxNameLength = 20;
+      const displayName = itemName.length > maxNameLength 
+        ? itemName.substring(0, maxNameLength - 3) + '...' 
+        : itemName;
+      
+      printer.println(`${index + 1}. ${displayName}`);
+      printer.leftRight('  Qty:', `${quantity}`);
+      printer.leftRight('  Total:', `Ksh ${totalPrice.toFixed(2)}`);
+      
+      // Add separator between items (except last one)
+      if (index < items.length - 1) {
+        printer.println('');
+      }
+    });
+
+    printer.println('');
+    printer.drawLine();
+    printer.println('');
+
+    // ============================================
+    // FOOTER SECTION
+    // ============================================
+    printer.alignCenter();
+    printer.println('');
+    printer.drawLine();
+    printer.println('');
+    printer.println('=== END OF REPORT ===');
+    printer.println('');
+    printer.println('Thank you!');
+    printer.println('');
+
+    // Bottom spacing
+    printer.println('');
+    printer.println('');
+
+    // Cut and beep
+    printer.cut();
+    printer.beep();
+
+    // 2. Get raw buffer
+    const buffer = printer.getBuffer();
+    
+    // 3. Physically force the data to printer
+    await forcePrint(buffer);
+    
+    res.json({ success: true, message: 'Items report printed successfully' });
+  } catch (error) {
+    console.error('Print items error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: `PRINT FAILED: ${error.message || error}` 
+    });
+  }
+});
+
+
 // Test print endpoint (GUARANTEED to work)
 app.get('/force-test', async (req, res) => {
   
