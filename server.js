@@ -392,6 +392,7 @@ app.get('/', (req,res) => {
   res.send("its working...")
 })
 
+
 app.post('/print-receipt', async (req, res) => {
   try {
     const { order, items, totals, restaurant, table, date, time, receiptId, address, phone, homeDelivery } = req.body;
@@ -409,11 +410,9 @@ app.post('/print-receipt', async (req, res) => {
     // PARKLANDS BRANCH STYLE RECEIPT
     // ============================================
 
-
-
     // LOGO - Large bold text
     printer.alignCenter();
-     await printer.printImage('./oranges.png');
+    await printer.printImage('./oranges.png');
     printer.bold(false);
     printer.setTextSize(0, 0);
 
@@ -436,14 +435,11 @@ app.post('/print-receipt', async (req, res) => {
     
     // Close box
 
-
     // Order # - Right aligned with shortened ID
     const fullOrderId = receiptId || (order?.id || 'N/A');
     const orderNum = fullOrderId.length > 12 ? fullOrderId.slice(-10) : fullOrderId;
     printer.alignLeft();
     printer.leftRight('Order #', orderNum);
-   
-
 
     // Table, Date, Time
     const tableNum =  table === 'Take Away' ? (order?.order_type || 'Take Away') : (table || order?.table_number || 'N/A');
@@ -453,20 +449,19 @@ app.post('/print-receipt', async (req, res) => {
     printer.leftRight('Table #', tableNum);
 
     // Add home delivery details if available
-if (req.body.homeDelivery) {
-  const { address: deliveryAddress, name: deliveryName, phone: deliveryPhone } = req.body.homeDelivery;
-  
-  if (deliveryAddress) {
-    printer.leftRight('Address:', deliveryAddress);
-  }
-  if (deliveryName) {
-    printer.leftRight('Name:', deliveryName);
-  }
-  if (deliveryPhone) {
-    printer.leftRight('Phone:', deliveryPhone);
-  }
-}
-
+    if (req.body.homeDelivery) {
+      const { address: deliveryAddress, name: deliveryName, phone: deliveryPhone } = req.body.homeDelivery;
+      
+      if (deliveryAddress) {
+        printer.leftRight('Address:', deliveryAddress);
+      }
+      if (deliveryName) {
+        printer.leftRight('Name:', deliveryName);
+      }
+      if (deliveryPhone) {
+        printer.leftRight('Phone:', deliveryPhone);
+      }
+    }
 
     printer.leftRight('Date', orderDate);
     printer.leftRight('Time', orderTime);
@@ -486,14 +481,11 @@ if (req.body.homeDelivery) {
 
         // Format: X2 - Item Name
         const itemLine = `X${quantity} - ${itemName}${portionSize}`;
-       if (order?.order_type === "bolt" || order?.order_type === "glovo") {
-          printer.println(itemLine)	
+        if (order?.order_type === "bolt" || order?.order_type === "glovo") {
+          printer.println(itemLine);
         } else {
           printer.leftRight(itemLine, itemTotal.toFixed(2));
-	  	
         }
-
-        
 
         // Customization notes indented with italic style
         if (item.customization_notes) {
@@ -512,111 +504,113 @@ if (req.body.homeDelivery) {
     printer.alignLeft();
     printer.setTextSize(0, 0);
 
-     // Calculate breakdown
+    // Calculate breakdown
     let subtotalBeforeTax = 0;
     let vat = 0;
     let levy = 0;
     let finalTotal = 0;
+    let discountAmount = 0;
 
     if (order?.order_type === "bolt" || order?.order_type === "glovo") {
-		    printer.println('');
+      printer.println('');
 
-
-    // THANK YOU Section
-    printer.alignCenter();
-    printer.bold(true);
-    printer.setTextSize(1, 1);
-    printer.println('THANK YOU!');
-    printer.bold(false);
-    printer.setTextSize(0, 0);
-    printer.println('Enjoy your Orange Dessert');
-    printer.println('');
-    printer.println('');
-    printer.println('');
-
-    // Powered by MAAMUL
-    printer.alignCenter();
-    printer.println('- POWERED BY MAAMUL -');
-
-    printer.setTextSize(0,0)
-    printer.println('maamul.com')
-
-
-} else {
-
-    if (totals?.total) {
-      // Total includes 18% (16% VAT + 2% Levy)
-      // So if total = X, then subtotal before tax = X / 1.18
-      finalTotal = totals.total;
-      subtotalBeforeTax = finalTotal / 1.18;
-      vat = subtotalBeforeTax * 0.16; // 16% VAT
-      levy = subtotalBeforeTax * 0.02; // 2% Levy
-    }
-    // Display subtotal before tax
-    const subtotalLabel = 'Subtotal (before Tax)';
-    const subtotalValue = `KSH ${subtotalBeforeTax.toFixed(2)}`;
-    printer.leftRight(subtotalLabel, subtotalValue);
-
-    // Display VAT 16%
-    const vatLabel = 'VAT (16%)';
-    const vatValue = `KSH ${vat.toFixed(2)}`;
-    printer.leftRight(vatLabel, vatValue);
-
-    // Display Levy 2%
-    const levyLabel = 'Levy (2%)';
-    const levyValue = `KSH ${levy.toFixed(2)}`;
-    printer.leftRight(levyLabel, levyValue);
-
-    if (totals?.discount && totals.discount > 0) {
-      const discountLabel = 'Discount';
-      const discountValue = `KSH ${totals.discount.toFixed(2)}`;
-      printer.bold();
-      printer.leftRight(discountLabel, discountValue);
+      // THANK YOU Section
+      printer.alignCenter();
+      printer.bold(true);
+      printer.setTextSize(1, 1);
+      printer.println('THANK YOU!');
       printer.bold(false);
+      printer.setTextSize(0, 0);
+      printer.println('Enjoy your Orange Dessert');
+      printer.println('');
+      printer.println('');
+      printer.println('');
+
+      // Powered by MAAMUL
+      printer.alignCenter();
+      printer.println('- POWERED BY MAAMUL -');
+
+      printer.setTextSize(0, 0);
+      printer.println('maamul.com');
+
+    } else {
+
+      if (totals?.total) {
+        // POS sends total BEFORE discount (e.g., 550 when discount is 50)
+        // We need to calculate subtotal, VAT, Levy from the original total
+        // Then subtract discount to get the final total
+        finalTotal = totals.total; // This is the total BEFORE discount
+        discountAmount = totals?.discount || 0;
+        
+        // Calculate subtotal, VAT, and Levy from the original total (before discount)
+        subtotalBeforeTax = finalTotal / 1.18;
+        vat = subtotalBeforeTax * 0.16; // 16% VAT
+        levy = subtotalBeforeTax * 0.02; // 2% Levy
+      }
+      
+      // Display subtotal before tax
+      const subtotalLabel = 'Subtotal (before Tax)';
+      const subtotalValue = `KSH ${subtotalBeforeTax.toFixed(2)}`;
+      printer.leftRight(subtotalLabel, subtotalValue);
+
+      // Display VAT 16%
+      const vatLabel = 'VAT (16%)';
+      const vatValue = `KSH ${vat.toFixed(2)}`;
+      printer.leftRight(vatLabel, vatValue);
+
+      // Display Levy 2%
+      const levyLabel = 'Levy (2%)';
+      const levyValue = `KSH ${levy.toFixed(2)}`;
+      printer.leftRight(levyLabel, levyValue);
+
+      // Display Discount if present
+      if (discountAmount > 0) {
+        const discountLabel = 'Discount';
+        const discountValue = `KSH ${discountAmount.toFixed(2)}`;
+        printer.bold();
+        printer.leftRight(discountLabel, discountValue);
+        printer.bold(false);
+      }
+      
+      printer.println('');
+
+      // Display Total (bold) - SUBTRACT DISCOUNT from original total
+      const finalTotalAfterDiscount = discountAmount > 0 ? finalTotal - discountAmount : finalTotal;
+      const totalLabel = 'Total';
+      const totalValue = `KSH ${finalTotalAfterDiscount.toFixed(2)}`;
+      printer.bold(true);
+      printer.leftRight(totalLabel, totalValue);
+      printer.bold(false);
+
+      printer.println('');
+
+      printer.bold(true);
+      printer.alignCenter();
+      printer.println('Till Number: 4983042');
+      printer.bold(false);
+
+      printer.println('');
+
+      // THANK YOU Section
+      printer.alignCenter();
+      printer.bold(true);
+      printer.setTextSize(1, 1);
+      printer.println('THANK YOU!');
+      printer.bold(false);
+      printer.setTextSize(0, 0);
+      printer.println('Enjoy your Orange Dessert');
+      printer.println('');
+      printer.println('');
+      printer.println('');
+
+      // Powered by MAAMUL
+      printer.alignCenter();
+      printer.println('- POWERED BY MAAMUL -');
+
+      printer.setTextSize(0, 0);
+      printer.println('maamul.com');
     }
- printer.println('');
-
-    // Display Total (bold)
-    const totalLabel = 'Total';
-    const totalValue = `KSH ${finalTotal.toFixed(2)}`;
-    printer.bold(true);
-    printer.leftRight(totalLabel, totalValue);
-    printer.bold(false);
-
-    printer.println('');
-
-
-    printer.bold(true);
-    printer.alignCenter();
-	
-    printer.println('Till Number: 4983042');
-    printer.bold(false);
-
-  
-
-    printer.println('');
-
-
-    // THANK YOU Section
-    printer.alignCenter();
-    printer.bold(true);
-    printer.setTextSize(1, 1);
-    printer.println('THANK YOU!');
-    printer.bold(false);
-    printer.setTextSize(0, 0);
-    printer.println('Enjoy your Orange Dessert');
-    printer.println('');
-    printer.println('');
-    printer.println('');
-
-    // Powered by MAAMUL
-    printer.alignCenter();
-    printer.println('- POWERED BY MAAMUL -');
-
-    printer.setTextSize(0,0)
-    printer.println('maamul.com')
-
-}
+    
     // Cut and beep
     printer.cut();
     printer.beep();
